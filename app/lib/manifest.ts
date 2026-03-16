@@ -13,8 +13,6 @@ export type SettingsHistory = {
   completenessRules?: SettingsHistoryEntry[];
   detectionRulesJson?: SettingsHistoryEntry[];
   styleRulesJson?: SettingsHistoryEntry[];
-  taggerPromptJson?: SettingsHistoryEntry[];
-  taggerEnforcerJson?: SettingsHistoryEntry[];
 };
 
 export type ProjectSettings = {
@@ -25,8 +23,6 @@ export type ProjectSettings = {
   completenessRules?: string;
   detectionRulesJson?: string;
   styleRulesJson?: string;
-  taggerPromptJson?: string;
-  taggerEnforcerJson?: string;
   history?: SettingsHistory;
 };
 

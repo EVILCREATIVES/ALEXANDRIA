@@ -1,8 +1,0 @@
-{
-  "model": "gemini-2.0-flash",
-  "prompt": "Detect every image on this page. For each image found, provide its title, description, category, and bounding box.\n\nWhat counts as an image:\n- Illustrations, character art, portraits\n- Photos, screenshots\n- Location/environment scenes\n- Logos, key art, promotional images\n- Diagrams, charts, graphs\n- Props, weapons, objects\n\nWhat to ignore:\n- Text paragraphs, headings, page numbers\n- Decorative borders, watermarks\n\nCategorization:\n- character: face or body clearly visible\n- prop/weapon: objects, tools, weapons (even if held by a hand)\n- location, keyArt, logo, diagram, chart, photo, illustration, object, other\n\nBe thorough — check edges and corners too.",
-  "categories": ["character", "prop", "weapon", "location", "keyArt", "logo", "diagram", "chart", "photo", "illustration", "object", "other"],
-  "temperature": 0.1,
-  "maxOutputTokens": 8192,
-  "minSizePx": 35
-}
