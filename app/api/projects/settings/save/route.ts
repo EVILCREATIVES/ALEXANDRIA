@@ -14,8 +14,6 @@ type Body = {
   completenessRules?: string;
   detectionRulesJson?: string;
   styleRulesJson?: string;
-  taggerPromptJson?: string;
-  taggerEnforcerJson?: string;
   history?: SettingsHistory;
 };
 
@@ -32,8 +30,6 @@ type SettingsFiles = {
   completenessRules?: SettingsFile;
   detectionRulesJson?: SettingsFile;
   styleRulesJson?: SettingsFile;
-  taggerPromptJson?: SettingsFile;
-  taggerEnforcerJson?: SettingsFile;
 };
 
 // Global settings index path
@@ -47,8 +43,6 @@ type GlobalSettingsIndex = {
   completenessRules?: SettingsFile;
   detectionRulesJson?: SettingsFile;
   styleRulesJson?: SettingsFile;
-  taggerPromptJson?: SettingsFile;
-  taggerEnforcerJson?: SettingsFile;
   historyUrl?: string;
   lastUpdated: string;
 };
@@ -118,22 +112,6 @@ export async function POST(req: Request): Promise<Response> {
       JSON.parse(body.styleRulesJson);
     } catch {
       return NextResponse.json({ ok: false, error: "styleRulesJson is not valid JSON" }, { status: 400 });
-    }
-  }
-
-  if (typeof body.taggerPromptJson === "string" && body.taggerPromptJson.trim()) {
-    try {
-      JSON.parse(body.taggerPromptJson);
-    } catch {
-      return NextResponse.json({ ok: false, error: "taggerPromptJson is not valid JSON" }, { status: 400 });
-    }
-  }
-
-  if (typeof body.taggerEnforcerJson === "string" && body.taggerEnforcerJson.trim()) {
-    try {
-      JSON.parse(body.taggerEnforcerJson);
-    } catch {
-      return NextResponse.json({ ok: false, error: "taggerEnforcerJson is not valid JSON" }, { status: 400 });
     }
   }
 
@@ -252,33 +230,7 @@ export async function POST(req: Request): Promise<Response> {
       }
     }
 
-    if (typeof body.taggerPromptJson === "string") {
-      latest.settings.taggerPromptJson = body.taggerPromptJson;
-      if (body.taggerPromptJson.trim()) {
-        const version = getNextVersion(settingsFiles.taggerPromptJson);
-        const path = generateSettingsPath("tagger-prompt", version, "json");
-        const blob = await put(path, body.taggerPromptJson, {
-          access: "public",
-          contentType: "application/json",
-          addRandomSuffix: false
-        });
-        settingsFiles.taggerPromptJson = { url: blob.url, version, savedAt };
-      }
-    }
 
-    if (typeof body.taggerEnforcerJson === "string") {
-      latest.settings.taggerEnforcerJson = body.taggerEnforcerJson;
-      if (body.taggerEnforcerJson.trim()) {
-        const version = getNextVersion(settingsFiles.taggerEnforcerJson);
-        const path = generateSettingsPath("tagger-enforcer", version, "json");
-        const blob = await put(path, body.taggerEnforcerJson, {
-          access: "public",
-          contentType: "application/json",
-          addRandomSuffix: false
-        });
-        settingsFiles.taggerEnforcerJson = { url: blob.url, version, savedAt };
-      }
-    }
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e);
     return NextResponse.json({ ok: false, error: `Failed to save settings files: ${msg}` }, { status: 500 });

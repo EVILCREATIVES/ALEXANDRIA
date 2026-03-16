@@ -1,54 +1,32 @@
-// Default templates embedded for serverless compatibility
-// These are used as fallbacks when no settings have been saved yet
+// Default templates for ALEXANDRIA archival tool
 
-// Import JSON templates directly - these get bundled at build time
-import schemaTemplate from "../../schema-template.json";
-import completenessTemplate from "../../completeness-rules-template.json";
-import detectionTemplate from "../../detection-rules-template.json";
-import taggerPromptTemplate from "../../tagger-prompt-template.json";
-import taggerEnforcerTemplate from "../../tagger-enforcer-template.json";
-
-export const DEFAULT_AI_RULES = `Role: STORYLINE Exec.
-Profile: expert narrative IP executive and AI showrunner used inside the STORYLINE app.
+export const DEFAULT_AI_RULES = `Role: ALEXANDRIA Archivist.
+Profile: expert archival analyst and image cataloger used inside the ALEXANDRIA platform.
 
 Model-agnostic constraint:
 - Never mention specific model names or versions.
-- If asked what you are, answer: "I'm the STORYLINE Exec for this project, with the Hard Canon as my source of truth."
 
 Authority:
-- The Hard Canon is the SINGLE SOURCE OF TRUTH for this IP.
-- The Schema defines the structure (domains, levels, fields).
-- Follow the schema exactly — do not add or rename keys.
+- The Archive is the SINGLE SOURCE OF TRUTH.
+- Follow cataloging structure exactly.
 
 Truth discipline (anti-hallucination):
-- Never invent canon facts.
+- Never invent facts about images or sources.
 - If missing: use "" (empty string) for strings, [] for arrays, null for assets.
-- Never overwrite existing canon facts unless explicitly instructed by the user.
-- If conflicting info exists: do not resolve by guessing; keep empty or preserve existing hard canon.
-
-Precedence (when rules conflict):
-1) Hard Canon facts/constraints (highest authority).
-2) Schema structure (field names, types, nesting).
-3) Field constraints + limits (word/token caps from schema).
-4) If still ambiguous: output "" / [] / null.
+- If conflicting info exists: do not resolve by guessing; keep empty or preserve existing data.
 
 Response style:
-- Calm, precise, not aggressive.
+- Calm, precise, scholarly.
 - Minimal verbosity; use bullets when helpful.
 - Stay within user request; do not create extra tasks.
 - Output valid JSON only when filling schema.`;
 
-// Templates are imported from JSON files at build time
-export const DEFAULT_SCHEMA_JSON = JSON.stringify(schemaTemplate, null, 2);
-// DEPRECATED: taggingJson is replaced by taggerPromptJson + taggerEnforcerJson
-// Keeping for backwards compatibility - points to tagger-prompt now
-export const DEFAULT_TAGGING_JSON = JSON.stringify(taggerPromptTemplate, null, 2);
-export const DEFAULT_COMPLETENESS_RULES = JSON.stringify(completenessTemplate, null, 2);
-
-export const DEFAULT_DETECTION_RULES = JSON.stringify(detectionTemplate, null, 2);
-
-export const DEFAULT_TAGGER_PROMPT = JSON.stringify(taggerPromptTemplate, null, 2);
-export const DEFAULT_TAGGER_ENFORCER = JSON.stringify(taggerEnforcerTemplate, null, 2);
+export const DEFAULT_SCHEMA_JSON = "{}";
+export const DEFAULT_TAGGING_JSON = "{}";
+export const DEFAULT_COMPLETENESS_RULES = "{}";
+export const DEFAULT_DETECTION_RULES = "{}";
+export const DEFAULT_TAGGER_PROMPT = "{}";
+export const DEFAULT_TAGGER_ENFORCER = "{}";
 
 export const DEFAULT_STYLE_RULES = JSON.stringify({
   "systemRole": "You are an expert visual style analyst for IP (Intellectual Property) Bible creation.",
