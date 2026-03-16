@@ -1,0 +1,106 @@
+{
+  "schemaId": "otherly-ipbible",
+  "version": "0.2.1",
+  "levels": ["L1", "L2", "L3"],
+  "domains": ["OVERVIEW", "CHARACTERS", "WORLD", "LORE", "FACTIONS", "STYLE", "TONE", "STORY"],
+
+  "uiRendering": {
+    "description": "Hints for the UI on how to render schema data. The page.tsx reads this to dynamically render cards.",
+    
+    "domainColors": {
+      "OVERVIEW": { "bg": "#f0f9ff", "accent": "#0284c7", "light": "#e0f2fe" },
+      "CHARACTERS": { "bg": "#fdf2f8", "accent": "#db2777", "light": "#fce7f3" },
+      "WORLD": { "bg": "#f0fdf4", "accent": "#16a34a", "light": "#dcfce7" },
+      "LORE": { "bg": "#fefce8", "accent": "#ca8a04", "light": "#fef9c3" },
+      "FACTIONS": { "bg": "#fef2f2", "accent": "#dc2626", "light": "#fee2e2" },
+      "STYLE": { "bg": "#faf5ff", "accent": "#9333ea", "light": "#f3e8ff" },
+      "TONE": { "bg": "#f0fdfa", "accent": "#0d9488", "light": "#ccfbf1" },
+      "STORY": { "bg": "#fff7ed", "accent": "#ea580c", "light": "#ffedd5" }
+    },
+
+    "objectCardMapping": {
+      "description": "For object[] types, defines which fields to use for card header rendering",
+      "defaults": {
+        "titleFields": ["Name", "name", "Title", "title", "NameLabel", "EventTitle", "ArcName", "EpisodeId", "Character", "Label", "label"],
+        "subtitleFields": ["Role", "role", "RoleType", "TimeMarker", "Type"],
+        "headlineFields": ["Headline", "headline", "Summary", "summary", "Logline", "logline", "Description", "description", "CoverPrompt"],
+        "imageFields": ["Cover", "Images.LeadImage", "Visual.LeadImage", "Visuals.LeadImage", "Visuals.Image", "Visual.Image", "Images.Image", "LeadImage", "Image"],
+        "imageCaptionField": "caption"
+      },
+      "L1CoverMapping": {
+        "description": "For L1 covers, defines how to render the cover selection card",
+        "promptField": "CoverPrompt",
+        "imageField": "Cover",
+        "showMatchConfidence": true,
+        "showMatchReason": true
+      }
+    },
+
+    "fieldTypeRendering": {
+      "asset": { "display": "image", "showCaption": true },
+      "asset[]": { "display": "imageGrid", "maxVisible": 8 },
+      "string": { "display": "text" },
+      "string[]": { "display": "tagList" },
+      "object": { "display": "nestedCard" },
+      "object[]": { "display": "cardList" },
+      "enum": { "display": "badge" }
+    }
+  },
+
+  "primitives": {
+    "types": {
+      "string": { "kind": "scalar" },
+      "string[]": { "kind": "array", "items": { "type": "string" } },
+      "object": { "kind": "object" },
+      "object[]": { "kind": "array", "items": { "type": "object" } },
+      "enum": { "kind": "enum" },
+      "ref": { "kind": "ref" },
+      "ref[]": { "kind": "array", "items": { "type": "ref" } },
+      "asset": { "kind": "asset" },
+      "asset[]": { "kind": "array", "items": { "type": "asset" } }
+    },
+
+    "assets": {
+      "image": {
+        "allowedFormats": ["png", "jpg", "jpeg", "webp"],
+        "fields": {
+          "url": { "type": "string", "format": "uri", "required": true },
+          "source": { "type": "enum", "values": ["uploaded", "extracted", "generated"], "required": true },
+          "caption": { "type": "string", "required": false }
+        }
+      },
+      "audio": {
+        "fields": {
+          "url": { "type": "string", "format": "uri", "required": true },
+          "source": { "type": "enum", "values": ["uploaded", "generated"], "required": true },
+          "caption": { "type": "string", "required": false }
+        }
+      }
+    },
+
+    "limits": {
+      "L1_COVER_PROMPT": { "maxWords": 35, "maxTokens": 80 },
+      "L2_TINY": { "maxWords": 8, "maxTokens": 24 },
+      "L2_SHORT": { "maxWords": 20, "maxTokens": 60 },
+      "L2_MED": { "maxWords": 45, "maxTokens": 120 },
+      "L2_LONG": { "maxWords": 90, "maxTokens": 220 },
+      "L3_SHORT": { "maxWords": 30, "maxTokens": 90 },
+      "L3_MED": { "maxWords": 80, "maxTokens": 200 },
+      "L3_LONG": { "maxWords": 140, "maxTokens": 320 }
+    },
+
+    "enums": {
+      "RoleType": ["lead", "antagonist", "supporting", "background_recurring"],
+      "FormatType": ["film", "series", "podcast", "webtoon", "novel", "game", "other"],
+      "LocationTier": ["master", "secondary"],
+      "BodyType": ["ectomorph", "mesomorph", "endomorph", "blend"],
+      "TensionLevel": ["low", "medium", "high", "volatile"],
+      "Scale": ["continent", "country", "region", "city", "neighborhood", "building", "room"],
+      "LoreEntryType": ["SYSTEM", "EVENT", "PLACE", "OBJECT", "BELIEF"],
+      "FactionType": ["GOVERNMENT", "CORPORATION", "CRIMINAL", "RELIGIOUS", "MILITARY", "SOCIAL", "IDEOLOGICAL", "OTHER"],
+      "ContrastLevel": ["low", "medium", "high"],
+      "SaturationLevel": ["muted", "moderate", "vivid"],
+      "StoryType": ["SINGLE STORY", "SERIES"]
+    }
+  }
+}

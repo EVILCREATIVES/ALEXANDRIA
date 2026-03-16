@@ -1,0 +1,175 @@
+{
+  "maxTagsPerImage": 25,
+  "maxNegativeTags": 15,
+  "minNegativeTags": 3,
+  "banned": [
+    "unknown",
+    "misc",
+    "other",
+    "untitled",
+    "image",
+    "picture",
+    "photo",
+    "page",
+    "figure",
+    "img",
+    "asset",
+    "generic",
+    "undefined",
+    "attr-floating-circular-platform",
+    "attr-snowy-mountain-peak",
+    "attr-rabbit-shaped-central-mountain",
+    "attr-white-paper-cup",
+    "attr-red-circular-logo",
+    "attr-bent-brown-straw",
+    "attr-white-lid",
+    "attr-high-contrast-lighting",
+    "obj-cup",
+    "obj-straw"
+  ],
+  "bannedPrefixes": ["attr-", "obj-", "env-"],
+  "categoryNegatives": {
+    "character": [
+      "extra-limbs",
+      "deformed-hands",
+      "bad-anatomy",
+      "wrong-fingers",
+      "asymmetric-eyes"
+    ],
+    "prop": [
+      "blurry",
+      "pixelated",
+      "distorted",
+      "low-resolution",
+      "cropped"
+    ],
+    "weapon": [
+      "blurry",
+      "pixelated",
+      "distorted",
+      "low-resolution",
+      "cropped"
+    ],
+    "location": [
+      "floating-objects",
+      "impossible-geometry",
+      "blurry",
+      "low-resolution"
+    ],
+    "environment": [
+      "floating-objects",
+      "impossible-geometry",
+      "blurry",
+      "low-resolution"
+    ],
+    "logo": [
+      "blurry",
+      "pixelated",
+      "cropped",
+      "distorted",
+      "low-resolution"
+    ],
+    "diagram": [
+      "blurry",
+      "unreadable",
+      "cropped",
+      "distorted"
+    ],
+    "keyArt": [
+      "extra-limbs",
+      "bad-anatomy",
+      "blurry",
+      "low-quality"
+    ],
+    "object": [
+      "blurry",
+      "pixelated",
+      "distorted",
+      "low-resolution"
+    ],
+    "default": [
+      "blurry",
+      "low-quality",
+      "pixelated"
+    ]
+  },
+  "allowed": {
+    "subjectType": ["character", "prop", "weapon", "object", "logo", "diagram", "environment", "other"],
+    "shot": [
+      "extreme-close-up",
+      "close-up",
+      "medium-shot",
+      "three-quarter-shot",
+      "full-body",
+      "wide-shot",
+      "establishing-shot",
+      "two-shot",
+      "group-shot",
+      "insert-shot",
+      "other"
+    ],
+    "angle": [
+      "eye-level",
+      "high-angle",
+      "low-angle",
+      "birdseye-view",
+      "dutch-angle",
+      "over-the-shoulder",
+      "front-view",
+      "three-quarter-view",
+      "profile-view",
+      "back-view",
+      "other"
+    ],
+    "styleVisibleOnly": [
+      "flat-color",
+      "vector-art",
+      "cel-shaded",
+      "painterly",
+      "realistic",
+      "high-contrast",
+      "warm-tones",
+      "dark-palette"
+    ]
+  },
+  "roleAllowlist": [
+    "hero",
+    "protagonist",
+    "antagonist",
+    "villain",
+    "mentor",
+    "sidekick",
+    "love-interest",
+    "rival",
+    "lead",
+    "king",
+    "queen"
+  ],
+  "canonicalMap": {
+    "orange-irises": "orange-iris",
+    "black-pupils": "black-pupil",
+    "black-spheres": "black-sphere",
+    "graphic-illustration": "graphic-art"
+  },
+  "singularizeMap": {
+    "irises": "iris",
+    "pupils": "pupil",
+    "spheres": "sphere"
+  },
+  "synonymMap": {
+    "graphic-illustration": "graphic-art",
+    "graphic-art-style": "graphic-art"
+  },
+  "tagPrefixes": {
+    "pose": "",
+    "attributes": "",
+    "objects": "",
+    "environment": "",
+    "style": "",
+    "subjectType": "type-",
+    "shot": "",
+    "angle": ""
+  },
+  "simplifyTags": true,
+  "_comment": "Setting prefixes to empty strings produces cleaner tags like 'red-hair' instead of 'attr-red-hair'. bannedPrefixes strips any tag starting with these."
+}

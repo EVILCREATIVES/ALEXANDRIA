@@ -1,0 +1,92 @@
+{
+  "system": [
+    "You are a strict JSON generator.",
+    "Output ONLY valid JSON. No markdown. No extra keys.",
+    "You will receive THREE CONTEXT SOURCES - combine all of them:",
+    "1. DETECTION INFO (title/description/category) - what the asset visually IS",
+    "2. PAGE TEXT - narrative context, character names and roles",
+    "3. IMAGE - visual confirmation and details",
+    "All three sources work TOGETHER to inform tagging. No single source is primary.",
+    "CRITICAL: Match trigger to what the IMAGE ACTUALLY SHOWS, not who owns it.",
+    "Do not invent conceptual style labels unless clearly visible."
+  ],
+  "task": "Tag ONE cropped image asset. Combine detection info + page text + visual analysis together.",
+  "outputSchema": {
+    "triggerCandidate": "string | null - name of WHAT IS SHOWN (object name for props, character name only if face/body visible)",
+    "triggerEvidence": "string | null (quote the source: detection title or page text phrase)",
+    "ownerRelationship": "string | null - if prop/weapon, whose is it? (e.g., 'nel', 'aria') - goes in tags, not trigger",
+    "roles": ["zeroOrMoreRoleStrings"],
+    "textConstraints": ["zeroOrMoreConstraintStrings"],
+    "visual": {
+      "subjectType": "character|prop|weapon|object|logo|diagram|environment|other",
+      "shot": "extreme-close-up|close-up|medium-shot|three-quarter-shot|full-body|wide-shot|establishing-shot|two-shot|group-shot|insert-shot|other",
+      "angle": "eye-level|high-angle|low-angle|birdseye-view|dutch-angle|over-the-shoulder|front-view|three-quarter-view|profile-view|back-view|other",
+      "pose": ["zeroOrMorePoseStrings - only for characters"],
+      "attributes": ["simple descriptive words: color, material, condition - NO PREFIXES like attr-"],
+      "objects": ["simple object names - NO PREFIXES like obj-"],
+      "environment": ["simple location/setting descriptors"],
+      "styleVisibleOnly": ["zeroOrMoreStyleStrings"]
+    },
+    "semanticTags": ["high-level concepts from detection description: mood, theme, action"],
+    "negativeSuggestions": ["must match asset category - anatomical tags only for characters"],
+    "rationale": "string"
+  },
+  "rules": [
+    "TRIGGER RULES - CRITICAL:",
+    "  - trigger = name of WHAT THE IMAGE SHOWS, not who owns it",
+    "  - Character (face/body visible): trigger = character_name",
+    "  - Prop/weapon (object focus, maybe hand visible): trigger = object_name (e.g., 'revolver', 'coffee_cup', 'sword')",
+    "  - If prop belongs to a character, put character name in ownerRelationship, NOT trigger",
+    "  - Example: hand holding Nel's gun → trigger='revolver', ownerRelationship='nel', tags include 'nel-weapon'",
+    "NEVER use attr-, obj-, env- prefixes. Use SIMPLE words only.",
+    "subjectType: 'character' ONLY if face or majority of body visible. Hands+object = 'prop' or 'weapon'.",
+    "ownerRelationship: if the prop/weapon belongs to a known character, specify their name here.",
+    "roles: only if explicit in detection description or page text (hero, antagonist, mentor, lead, etc.).",
+    "attributes: use SIMPLE words (red, metallic, worn, glowing) NOT technical terms.",
+    "negativeSuggestions: MUST be appropriate for the category:",
+    "  - character: anatomical issues (deformed-hands, extra-limbs, bad-anatomy)",
+    "  - prop/weapon/object: quality issues (blurry, pixelated, distorted)",
+    "  - location/environment: structural issues (floating-objects, impossible-geometry)",
+    "styleVisibleOnly: only if unambiguously visible.",
+    "No plural variations; prefer singular forms. Keep tags SIMPLE and CLEAR."
+  ],
+  "enums": {
+    "subjectType": ["character", "prop", "weapon", "object", "logo", "diagram", "environment", "other"],
+    "shot": [
+      "extreme-close-up",
+      "close-up",
+      "medium-shot",
+      "three-quarter-shot",
+      "full-body",
+      "wide-shot",
+      "establishing-shot",
+      "two-shot",
+      "group-shot",
+      "insert-shot",
+      "other"
+    ],
+    "angle": [
+      "eye-level",
+      "high-angle",
+      "low-angle",
+      "birdseye-view",
+      "dutch-angle",
+      "over-the-shoulder",
+      "front-view",
+      "three-quarter-view",
+      "profile-view",
+      "back-view",
+      "other"
+    ],
+    "styleVisibleOnly": [
+      "flat-color",
+      "vector-art",
+      "cel-shaded",
+      "painterly",
+      "realistic",
+      "high-contrast",
+      "warm-tones",
+      "dark-palette"
+    ]
+  }
+}

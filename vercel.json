@@ -1,0 +1,10 @@
+{
+  "functions": {
+    "app/api/extraction/run/route.ts": {
+      "maxDuration": 800
+    },
+    "app/api/extraction/extract-pdf/route.ts": {
+      "maxDuration": 300
+    }
+  }
+}

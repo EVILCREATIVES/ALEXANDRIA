@@ -1,0 +1,618 @@
+You are an expert IP Bible creator. Your task is to analyze source material and extract structured data according to the IP Bible V4 schema.
+
+## CRITICAL RULES:
+1. **TEXT-ONLY ANALYSIS**: This is text-only analysis. For ALL image-related fields (any field containing "Image", "Asset", "url", "thumbnailUrl"), return null for single assets and [] for asset arrays.
+2. **USE EXACT FIELD NAMES**: Use the EXACT field names from the SCHEMA DEFINITION. Do NOT rename or modify field names.
+3. **INCLUDE ALL FIELDS**: Include EVERY field defined in the schema, even if you have no information for it.
+4. **EMPTY VALUES**: For fields with no information:
+   - String fields: use "" (empty string)
+   - Array fields: use [] (empty array)
+   - Object fields: include the object with empty nested fields
+   - Asset-typed fields (schema type references the Asset definition, e.g. HeroImage, LeadImage, SupportingImages): use null
+   - Asset[] fields: use [] (empty array)
+   - IMPORTANT: String-typed fields like Logline, Concept, Synopsis are "type": "string" in the schema — they are TEXT descriptions, NOT images. Fill them with text, do NOT use null.
+5. **NO INVENTED FIELDS**: Do NOT add fields that are not in the schema definition.
+6. **BE ACCURATE**: Only extract information that is clearly present or strongly implied in the source text. Do NOT invent details.
+
+## EXTRACTION COMPLETENESS — ABSOLUTE REQUIREMENT:
+7. **EXTRACT EVERY CHARACTER**: You MUST identify and extract EVERY character mentioned in the source material. Do NOT stop at 2–3 characters. Scan the ENTIRE source text and include ALL named or significant unnamed characters.
+8. **CHARACTER PRIORITY ORDER**: Sort the CharacterList array in this priority:
+   1. **Lead Characters** (RoleType: "lead") — protagonist(s), main POV character(s)
+   2. **Antagonists** (RoleType: "antagonist") — primary villain(s), opposing force(s)
+   3. **Supporting Roles** (RoleType: "supporting") — significant secondary characters with plot impact
+   4. **Recurring Background** (RoleType: "background_recurring") — named characters who appear multiple times but are not central
+9. **EXTRACT EVERY LOCATION**: You MUST identify and extract EVERY distinct location mentioned in the source material. Include both explicitly named places and significant unnamed settings.
+10. **LOCATION TIERING**: Tag each location's LocationTier correctly:
+    - "master": Recurring locations, locations hosting key events, locations grouping sub-settings
+    - "secondary": Single-use or briefly mentioned locations
+11. **WORLD STAGE IS REQUIRED**: ALWAYS extract at least 1 World Stage (WORLD.Stage) — the primary macro setting (planet, city, realm, era) the entire story takes place in. This is the highest-level world container.
+12. **EXTRACT EVERY EPISODE**: If the source material describes multiple episodes, chapters, issues, or installments, you MUST create a separate Episode entry for EACH ONE in EpisodePack.Episode[]. Do NOT summarize multiple episodes into a single entry. Do NOT stop after 1 episode. If the source describes 9 episodes, your output MUST contain exactly 9 Episode objects. Count them before you finalize.
+13. **NO LAZY SHORTCUTS**: Do NOT abbreviate arrays by outputting 1 item when the source contains many. Every character, location, episode, arc, beat, and timeline event mentioned in the source MUST appear in the output. The JSON example shows 1 item per array as a TEMPLATE — you must fill every item from the source.
+
+## SCHEMA JSON DEFINITION:
+{{SCHEMA_JSON}}
+
+{{METADATA_CONTEXT}}
+
+## SOURCE MATERIAL TO ANALYZE:
+(Begin analysis of source text. You MUST read until the very end. Do not skip the middle or end sections.)
+================================================================================
+{{SOURCE_TEXT}}
+================================================================================
+(End of source text)
+
+## FINAL INSTRUCTION:
+Review against the "completeness" rules above. Did you extract EVERY character and EVERY episode, even from the last page? If not, go back and add them now.
+
+{
+  "version": 4,
+  "OVERVIEW": {
+    "HeroPrompt": "",
+    "HeroImage": null,
+    "IPTitle": "...",
+    "Logline": "...",
+    "Concept": "...",
+    "MainCharacter": "...",
+    "WhatUpAgainst": "...",
+    "Synopsis": "...",
+    "World": "...",
+    "Tone": "...",
+    "ImagesList": []
+  },
+  "CHARACTERS": {
+    "HeroPrompt": "",
+    "Hero": null,
+    "CharacterList": [
+      // IMPORTANT: Include EVERY character from the source. Sort by: lead → antagonist → supporting → background_recurring
+      {
+        "RoleType": "lead|antagonist|supporting|background_recurring",
+        "Name": "...",
+        "Aliases": [],
+        "StoryFunctionTags": [],
+        "Logline": "...",
+        "Images": {
+          "LeadImage": null,
+          "FullBodyImage": null,
+          "SupportingImages": [],
+          "PoseSheet": null,
+          "ClothesImgs": [],
+          "PropImgs": [],
+          "DetailImgs": []
+        },
+        "HowTheyLook": ["..."],
+        "HowTheySpeak": ["..."],
+        "SummaryBox": "...",
+        "Distinctiveness": "...",
+        "Comparison": "...",
+        "TheirQuestion": "...",
+        "WantAndNeed": "...",
+        "InnerPressure": "...",
+        "OuterPressure": "...",
+        "CoreBelief": "...",
+        "FactionAffiliation": [],
+        "KeyRelationships": [],
+        "Gen": {
+          "Trigger": "...",
+          "Tags": ["..."],
+          "NegativeTags": ["..."],
+          "Notes": "..."
+        },
+        "IdentityRole": {
+          "NameLabel": "...",
+          "AliasesNicknames": [],
+          "StoryFunctionTag": "...",
+          "Status": "..."
+        },
+        "SupportingImages": { "SupportingImages": [] },
+        "Visual": {
+          "AgeRange": "...",
+          "BodyType": "ectomorph|mesomorph|endomorph|blend",
+          "BodyShape": "...",
+          "KeyFacialPhysicalTraits": [],
+          "Hairstyle": "...",
+          "ClothingStyle": "...",
+          "KeyPropsSilhouetteHook": "..."
+        },
+        "Voice": {
+          "BaselineVoice": "...",
+          "SyntaxTempo": "...",
+          "Register": "...",
+          "SlangDialect": "...",
+          "SignaturePhrasesVerbalTics": [],
+          "AudioSample": null
+        },
+        "BehaviourRules": {
+          "CoreMotivations": [],
+          "CoreFearsVulnerabilities": [],
+          "AlwaysRules": [],
+          "NeverRules": [],
+          "PrimaryFlaws": [],
+          "DecisionPatterns": "...",
+          "HowTheyAct": [],
+          "HowTheyThink": []
+        },
+        "Relationships": {
+          "Link": [
+            {
+              "TargetRef": "...",
+              "Type": "...",
+              "Directionality": "...",
+              "TensionLevel": "low|medium|high|volatile",
+              "KeyTurningPoints": [],
+              "Notes": "..."
+            }
+          ]
+        }
+      }
+    ]
+  },
+  "WORLD": {
+    "HeroPrompt": "",
+    "Hero": null,
+    "WorldPremiseTone": "...",
+    "AestheticLanguage": { "Keywords": ["..."] },
+    "Stage": {
+      "WorldStage": "THE PRIMARY MACRO SETTING — ALWAYS REQUIRED",
+      "Setting": "...",
+      "Role": ["POWER-CENTRE", "FRONTIER"],
+      "HeroImage": null,
+      "SecondaryImages": [],
+      "SettingSummary": "...",
+      "Distinctiveness": "...",
+      "LocationRules": ["..."],
+      "LocationPressures": ["..."],
+      "ScaleAndStoryFocus": "...",
+      "Atmosphere": "..."
+    },
+    "Locations": [
+      // IMPORTANT: Include EVERY location from the source. Tag master vs secondary.
+      {
+        "LocationTier": "master|secondary",
+        "Name": "...",
+        "Type": "...",
+        "Role": ["HIDEOUT", "PRESSURE-COOKER"],
+        "SummaryBox": "...",
+        "Distinctiveness": "...",
+        "Comps": "...",
+        "Setting": "...",
+        "Images": {
+          "LeadImage": null,
+          "SupportingImages": [],
+          "Map": null,
+          "PreProductionImages": []
+        },
+        "Meta": {
+          "Scale": "continent|country|region|city|neighborhood|building|room",
+          "Context": "...",
+          "EnvironmentArchetype": ["..."],
+          "Style": ["..."],
+          "Function": "..."
+        },
+        "Position": "...",
+        "ShortDescription": "...",
+        "LocationPressures": ["..."],
+        "LocationRules": ["..."],
+        "HowItLooks": ["..."],
+        "HowItFeels": ["..."],
+        "ConnectedPeople": ["..."],
+        "ConnectedPlaces": ["..."],
+        "Gen": { "Trigger": "...", "Tags": ["..."], "NegativeTags": ["..."], "Notes": "..." },
+        "Relationships": { "Link": [{ "TargetRef": "...", "Type": "...", "Directionality": "...", "TensionLevel": "low|medium|high|volatile", "KeyTurningPoints": [], "Notes": "..." }] }
+      }
+    ]
+  },
+  "LORE": {
+    "HeroPrompt": "",
+    "Hero": null,
+    "Summary": {
+      "OverviewThemes": "...",
+      "HeroImage": null,
+      "Themes": ["..."],
+      "LoreOverview": "..."
+    },
+    "WhoRunsThings": { "Themes": "...", "Summary": "...", "Images": [] },
+    "HowTheWorldWorks": { "Themes": "...", "Summary": "...", "Images": [] },
+    "WhatPeopleBelieve": { "Themes": "...", "Summary": "...", "Images": [] },
+    "WhereItsBreaking": { "Themes": "...", "Summary": "...", "Images": [] },
+    "History": {
+      "HowWeGotHere": "...",
+      "Timeline": ["..."],
+      "TimelineImages": []
+    },
+    "Entries": [
+      {
+        "Name": "...",
+        "Type": "SYSTEM|EVENT|PLACE|OBJECT|BELIEF",
+        "Role": ["..."],
+        "OneLine": "...",
+        "HeroImage": null,
+        "WhatItIs": "...",
+        "HowItWorks": ["..."],
+        "WhoBenefitsWhoPays": ["..."],
+        "PressurePoints": ["..."],
+        "LookAndFeel": {
+          "Images": [],
+          "PreProductionImages": [],
+          "WhereYouSeeIt": ["..."]
+        },
+        "Relationships": {
+          "ConnectedCharacters": ["..."],
+          "ConnectedLocations": ["..."]
+        }
+      }
+    ]
+  },
+  "FACTIONS": {
+    "HeroPrompt": "",
+    "Hero": null,
+    "Faction": [
+      // CONDITIONAL: Only create entries for recurring, story-driving groups. Minor mentions → LORE instead.
+      {
+        "Name": "...",
+        "FactionType": "GOVERNMENT|CORPORATION|CRIMINAL|RELIGIOUS|MILITARY|SOCIAL|IDEOLOGICAL|OTHER",
+        "OneLine": "...",
+        "HeroImage": null,
+        "WhoTheyAre": "...",
+        "WhatTheyWant": "...",
+        "HowTheyOperate": ["..."],
+        "WhatTheyControl": ["..."],
+        "InternalPressure": ["..."],
+        "WhoBenefitsWhoPays": ["..."],
+        "LookAndFeel": {
+          "VisualIdentity": [],
+          "PreProductionImages": [],
+          "TrademarkItems": ["..."],
+          "HowTheyShowUp": ["..."]
+        },
+        "Relationships": {
+          "ConnectedCharacters": ["..."],
+          "ConnectedLocations": ["..."],
+          "ConnectedLoreEntries": ["..."]
+        }
+      }
+    ]
+  },
+  "STYLE": {
+    "HeroPrompt": "",
+    "Hero": null,
+    "CreativeVision": "...",
+    "StylePackImages": [],
+    "StyleUploadImages": [],
+    "SignsAndSymbols": ["..."],
+    "Boundaries": ["..."],
+    "Formats": "...",
+    "Comps": {
+      "Images": [],
+      "Text": ["..."]
+    },
+    "Execution": {
+      "ReferenceImages": [],
+      "Texture": ["..."],
+      "ColorAndContrast": ["..."],
+      "Lighting": ["..."],
+      "Shots": ["..."],
+      "Design": ["..."]
+    },
+    "VisualStyle": {
+      "LeadImage": null,
+      "StyleSummary": "...",
+      "ArtStyle": "...",
+      "RenderingTechnique": "...",
+      "LineWork": "...",
+      "DetailLevel": "...",
+      "SupportingImages": [],
+      "KeyCharacteristics": ["..."],
+      "StyleElements": ["..."],
+      "ExtractedPatterns": ["..."]
+    },
+    "ColorPalette": {
+      "MainPaletteStrip": null,
+      "AdditionalSwatches": [],
+      "PaletteSummary": "...",
+      "ColorRules": ["..."],
+      "ContrastLevel": "low|medium|high",
+      "SaturationLevel": "muted|moderate|vivid",
+      "UsageExamples": ["..."],
+      "ExtractedPalette": ["..."]
+    },
+    "TextureMaterialLanguage": {
+      "MaterialTileBoard": null,
+      "MaterialSummary": "...",
+      "SurfaceRules": ["..."],
+      "TexturePatterns": ["..."]
+    },
+    "Composition": {
+      "FramingGrid": null,
+      "DepthStacking": "...",
+      "FocusSubjectHierarchy": "...",
+      "RecurringShapesMotifs": ["..."],
+      "NegativeSpaceRules": ["..."],
+      "ExtractedCompositionPatterns": ["..."]
+    },
+    "VisualIconography": {
+      "IconographyOutline": "...",
+      "AdditionalMotifs": ["..."],
+      "IconSummary": "...",
+      "MotifList": ["..."],
+      "MetaSymbolsMeaning": ["..."],
+      "ShapeLanguage": "...",
+      "ExtractedMotifs": ["..."]
+    },
+    "Lighting": {
+      "BaseLightingMood": "...",
+      "ContrastShadowRules": ["..."],
+      "LightSourceLogic": "...",
+      "ColorTemperatureMap": "...",
+      "TimeOfDayBias": "...",
+      "AccentLightingPatterns": ["..."],
+      "ExtractedLightingPatterns": ["..."],
+      "AtmosphericEffects": ["..."]
+    }
+  },
+  "TONE": {
+    "HeroPrompt": "",
+    "Hero": null,
+    "ToneOverview": "...",
+    "GenreSignals": ["..."],
+    "WhatToExpect": ["..."],
+    "AudienceHooks": ["..."],
+    "Reality": ["..."],
+    "WhatItIsNot": ["..."],
+    "Images": { "SupportingImages": [] }
+  },
+  "STORY": {
+    "HeroPrompt": "",
+    "Hero": null,
+    "StoryOverview": [
+      {
+        "Name": "...",
+        "HeroImage": null,
+        "Summary": "...",
+        "KeyBeats": ["..."]
+      }
+    ],
+    "MasterStory": {
+      "Story": "...",
+      "Arc": "...",
+      "Tension": "...",
+      "Stakes": "...",
+      "KeyTurns": ["..."],
+      "Structure": {
+        "Arc": ["..."],
+        "HowItStarts": "...",
+        "HowItEnds": "...",
+        "Formats": ["..."]
+      },
+      "Timeline": {
+        "KeyEvents": ["..."]
+      }
+    },
+    "StoryFormats": [
+      {
+        "Story": "...",
+        "Arc": "...",
+        "Tension": "...",
+        "Stakes": "...",
+        "KeyTurns": ["..."],
+        "Structure": {
+          "StoryType": "SINGLE STORY|SERIES",
+          "Arc": ["..."],
+          "HowItStarts": "...",
+          "HowItEnds": "...",
+          "FormatNote": "..."
+        },
+        "Timeline": { "KeyEvents": ["..."] },
+        "Beats": { "MajorBeats": ["..."], "EpisodeBeats": ["..."] }
+      }
+    ],
+    "CanonTimelineTable": {
+      "Beat": [
+        {
+          "TimeMarker": "...",
+          "EventTitle": "...",
+          "Summary": "...",
+          "KeyCharacters": ["..."],
+          "LoreLinks": ["..."],
+          "Locations": ["..."],
+          "Factions": ["..."],
+          "Dependencies": ["..."]
+        }
+      ]
+    },
+    "ArcMap": {
+      "Arc": [
+        {
+          "ArcName": "...",
+          "StartState": "...",
+          "ArcQuestionTension": "...",
+          "KeyTurns": ["..."],
+          "EndState": "..."
+        }
+      ]
+    },
+    "POVStructureRules": {
+      "POVStrategy": "...",
+      "TimelinePattern": "...",
+      "AccessRules": "...",
+      "NarrativeDevices": ["..."]
+    },
+    "CharacterArcsGridLeads": {
+      "Row": [
+        {
+          "Character": "...",
+          "StartState": "...",
+          "MidpointShift": "...",
+          "EndState": "...",
+          "CoreLessonFailure": "..."
+        }
+      ]
+    },
+    "OverallIPNarrative": {
+      "Text": "..."
+    },
+    "MasterTimeline": {
+      "Beat": [
+        {
+          "TimeMarker": "...",
+          "EventTitle": "...",
+          "Summary": "...",
+          "KeyCharacters": ["..."],
+          "LoreLinks": ["..."],
+          "Locations": ["..."],
+          "Factions": ["..."],
+          "Dependencies": ["..."]
+        }
+      ]
+    },
+    "FormatNarrative": {
+      "FormatType": "film|series|podcast|webtoon|novel|game|other",
+      "EpisodeCountOrLength": "...",
+      "RuntimeOrPageCount": "...",
+      "ReleaseCadence": "...",
+      "StructureRules": "..."
+    },
+    "EpisodePack": {
+      // IMPORTANT: Include a SEPARATE Episode object for EVERY episode/chapter/installment in the source.
+      // Do NOT collapse multiple episodes into one. If source has 9 episodes, output 9 objects here.
+      // CRITICAL: For EACH Episode, you MUST populate KeyCharacters[], KeyLocations[], and LoreDependencies[].
+      // Do NOT leave these arrays empty for episodes 2, 3, 4, etc. — every episode has characters and locations.
+      "Episode": [
+        {
+          "EpisodeId": "ep-01",
+          "EpisodeNumber": "1",
+          "Title": "...",
+          "Logline": "...",
+          "BeatSheet": "...",
+          "KeyCharacters": ["Character A", "Character B"],
+          "KeyLocations": ["Location X", "Location Y"],
+          "LoreDependencies": ["Lore element referenced"],
+          "AssetNeeds": ["..."],
+          "Notes": "..."
+        },
+        {
+          "EpisodeId": "ep-02",
+          "EpisodeNumber": "2",
+          "Title": "...",
+          "Logline": "...",
+          "BeatSheet": "...",
+          "KeyCharacters": ["Character C", "Character A"],
+          "KeyLocations": ["Location Z"],
+          "LoreDependencies": ["Lore element referenced"],
+          "AssetNeeds": ["..."],
+          "Notes": "..."
+        }
+        // ... repeat for EVERY episode — ALWAYS fill KeyCharacters, KeyLocations, LoreDependencies
+      ]
+    }
+  }
+}
+
+## FIELD GUIDANCE:
+For each domain, focus on extracting:
+
+**OVERVIEW**: The IP's identity card.
+  - IPTitle: Main title of the IP
+  - Logline: One-sentence hook / logline
+  - Concept: High-concept premise
+  - MainCharacter: Protagonist summary — goal, flaw, arc direction
+  - WhatUpAgainst: Primary antagonist or opposing force
+  - Synopsis: Multi-paragraph story summary (distinct from Logline)
+  - World: Setting summary
+  - Tone: Emotional register keywords
+  - HeroPrompt/HeroImage: Leave empty string / null (image fields)
+  - ImagesList: Leave [] (image field)
+
+**CHARACTERS**: Extract EVERY character. Sort by lead → antagonist → supporting → background_recurring. For EACH character extract ALL nested sub-objects:
+  - Top-level: RoleType, Name, Aliases[], StoryFunctionTags[], Logline, HowTheyLook[] (ARRAY of strings), HowTheySpeak[] (ARRAY of strings), SummaryBox, Distinctiveness, Comparison, TheirQuestion, WantAndNeed, InnerPressure, OuterPressure, CoreBelief, FactionAffiliation[], KeyRelationships[]
+  - Images: Object with LeadImage (null), FullBodyImage (null), SupportingImages ([]), PoseSheet (null), ClothesImgs ([]), PropImgs ([]), DetailImgs ([])
+  - Gen: Trigger, Tags[] (ARRAY), NegativeTags[] (ARRAY), Notes
+  - IdentityRole: NameLabel, AliasesNicknames[], StoryFunctionTag, Status
+  - SupportingImages: Object with SupportingImages[] inside
+  - Visual: AgeRange, BodyType (ectomorph/mesomorph/endomorph/blend), BodyShape, KeyFacialPhysicalTraits[], Hairstyle, ClothingStyle, KeyPropsSilhouetteHook
+  - Voice: BaselineVoice, SyntaxTempo, Register, SlangDialect, SignaturePhrasesVerbalTics[], AudioSample (null)
+  - BehaviourRules: CoreMotivations[], CoreFearsVulnerabilities[], AlwaysRules[], NeverRules[], PrimaryFlaws[], DecisionPatterns, HowTheyAct[], HowTheyThink[]
+  - Relationships: Link[] with TargetRef, Type, Directionality, TensionLevel (low/medium/high/volatile), KeyTurningPoints[], Notes
+
+**WORLD**: ALWAYS include Stage. Extract EVERY location.
+  - WorldPremiseTone: The world's defining rule or characteristic
+  - AestheticLanguage: Keywords[] (ARRAY of visual/atmospheric keywords)
+  - Stage (REQUIRED): WorldStage, Setting, Role[], HeroImage (null), SecondaryImages ([]), SettingSummary, Distinctiveness, LocationRules[], LocationPressures[], ScaleAndStoryFocus, Atmosphere
+  - Each Location: LocationTier (master/secondary), Name, Type, Role[], SummaryBox, Distinctiveness, Comps, Setting
+    - Images: Object with LeadImage (null), SupportingImages ([]), Map (null), PreProductionImages ([])
+    - Meta: Scale (continent/country/.../room), Context, EnvironmentArchetype[] (ARRAY), Style[] (ARRAY), Function
+    - Position, ShortDescription, LocationPressures[], LocationRules[], HowItLooks[], HowItFeels[]
+    - ConnectedPeople[], ConnectedPlaces[]
+    - Gen: Trigger, Tags[] (ARRAY), NegativeTags[] (ARRAY), Notes
+    - Relationships: Link[] with TargetRef, Type, Directionality, TensionLevel, KeyTurningPoints[], Notes
+
+**LORE**: World systems, history, beliefs, cultural elements. If a group/org is mentioned only once or is not story-driving, include it here as a LORE entry rather than a FACTION.
+  - Summary: OverviewThemes, HeroImage (null), Themes[], LoreOverview
+  - WhoRunsThings: Themes, Summary, Images ([]) — who holds power
+  - HowTheWorldWorks: Themes, Summary, Images ([]) — rules, systems, physics
+  - WhatPeopleBelieve: Themes, Summary, Images ([]) — religions, myths, ideologies
+  - WhereItsBreaking: Themes, Summary, Images ([]) — tensions, fractures, instabilities
+  - History: HowWeGotHere (narrative), Timeline[] (key events), TimelineImages ([])
+  - Each Entry: Name, Type (SYSTEM/EVENT/PLACE/OBJECT/BELIEF), Role[], OneLine, HeroImage (null), WhatItIs, HowItWorks[], WhoBenefitsWhoPays[], PressurePoints[]
+    - LookAndFeel: Images ([]), PreProductionImages ([]), WhereYouSeeIt[]
+    - Relationships: ConnectedCharacters[], ConnectedLocations[]
+
+**FACTIONS**: **CONDITIONAL** — Only create FACTION entries for groups/organizations that are recurring, story-driving, or explain a major pressure in the world. If the source material has no such groups, return `"Faction": []`. Minor or one-off mentions belong in LORE instead.
+  - Each Faction: Name, FactionType (GOVERNMENT/CORPORATION/CRIMINAL/RELIGIOUS/MILITARY/SOCIAL/IDEOLOGICAL/OTHER), OneLine, HeroImage (null), WhoTheyAre, WhatTheyWant, HowTheyOperate[], WhatTheyControl[], InternalPressure[], WhoBenefitsWhoPays[]
+    - LookAndFeel: VisualIdentity ([]), PreProductionImages ([]), TrademarkItems[], HowTheyShowUp[]
+    - Relationships: ConnectedCharacters[], ConnectedLocations[], ConnectedLoreEntries[]
+
+**STYLE**: Visual identity extracted from text descriptions. Infer art direction, palette, composition from narrative prose.
+  - CreativeVision: Overall visual direction statement
+  - SignsAndSymbols[]: Recurring visual symbols/motifs in the text
+  - Boundaries[]: Visual "never do" rules
+  - Formats: Target format/medium
+  - Comps: Text[] (comparable references)
+  - Execution: Texture[], ColorAndContrast[], Lighting[], Shots[], Design[]
+  - VisualStyle: StyleSummary, ArtStyle, RenderingTechnique, LineWork, DetailLevel, KeyCharacteristics[], StyleElements[], ExtractedPatterns[]
+  - ColorPalette: PaletteSummary, ColorRules[], ContrastLevel (low/medium/high), SaturationLevel (muted/moderate/vivid), UsageExamples[], ExtractedPalette[]
+  - TextureMaterialLanguage: MaterialSummary, SurfaceRules[], TexturePatterns[]
+  - Composition: DepthStacking, FocusSubjectHierarchy, RecurringShapesMotifs[], NegativeSpaceRules[], ExtractedCompositionPatterns[]
+  - VisualIconography: IconographyOutline, AdditionalMotifs[], IconSummary, MotifList[], MetaSymbolsMeaning[], ShapeLanguage, ExtractedMotifs[]
+  - Lighting: BaseLightingMood, ContrastShadowRules[], LightSourceLogic, ColorTemperatureMap, TimeOfDayBias, AccentLightingPatterns[], ExtractedLightingPatterns[], AtmosphericEffects[]
+
+**TONE**: Emotional and genre identity of the IP.
+  - ToneOverview: Overall emotional register statement
+  - GenreSignals[]: Genre tags (e.g., "neo-noir", "dark comedy", "sci-fi thriller")
+  - WhatToExpect[]: Audience expectation-setters
+  - AudienceHooks[]: What draws people in
+  - Reality[]: Realism level descriptors
+  - WhatItIsNot[]: Anti-references — what this IP explicitly is NOT
+  - Images: { SupportingImages: [] }
+
+**STORY**: Full narrative architecture. Extract ALL sub-objects.
+  - StoryOverview[]: Summary cards — Name, HeroImage (null), Summary, KeyBeats[]
+  - MasterStory: The canonical IP-wide narrative arc
+    - Story, Arc, Tension, Stakes, KeyTurns[]
+    - Structure: Arc[], HowItStarts, HowItEnds, Formats[]
+    - Timeline: KeyEvents[]
+  - StoryFormats[]: Format-specific adaptations (film, series, game, etc.)
+    - Story, Arc, Tension, Stakes, KeyTurns[]
+    - Structure: StoryType (SINGLE STORY/SERIES), Arc[], HowItStarts, HowItEnds, FormatNote
+    - Timeline: KeyEvents[]
+    - Beats: MajorBeats[], EpisodeBeats[]
+  - CanonTimelineTable: Beat[] — TimeMarker, EventTitle, Summary, KeyCharacters[], LoreLinks[], Locations[], Factions[], Dependencies[]
+  - ArcMap: Arc[] — ArcName, StartState, ArcQuestionTension, KeyTurns[], EndState
+  - POVStructureRules: POVStrategy, TimelinePattern, AccessRules, NarrativeDevices[]
+  - CharacterArcsGridLeads: Row[] — Character, StartState, MidpointShift, EndState, CoreLessonFailure
+  - OverallIPNarrative: Text (comprehensive narrative summary)
+  - MasterTimeline: Beat[] — same shape as CanonTimelineTable beats (comprehensive chronological timeline)
+  - FormatNarrative: FormatType (film/series/podcast/webtoon/novel/game/other), EpisodeCountOrLength, RuntimeOrPageCount, ReleaseCadence, StructureRules
+  - EpisodePack: Episode[] — ONE ENTRY PER EPISODE. If source has 9 episodes, output 9 Episode objects. Do NOT summarize multiple episodes into 1.
+    - For EVERY Episode (not just the first): fill KeyCharacters[] with the character names who appear in that episode, KeyLocations[] with the locations used, and LoreDependencies[] with any lore elements referenced. NEVER leave these arrays empty for any episode.
+
+Remember:
+- All Image/Asset fields → null for single assets, [] for asset arrays
+- Be comprehensive but accurate — extract EVERY character and EVERY location, not just the obvious ones
+- Write in the tone of the source material
+- Follow word/character limits specified in field constraints
+- Character count check: if the source mentions N characters, your output MUST have at least N entries in CharacterList
+- Location count check: if the source mentions N distinct places, your output MUST have at least N entries in Locations[]
+- Episode count check: if the source describes N episodes/chapters/installments, EpisodePack.Episode[] MUST have exactly N entries
+- Episode field check: EVERY Episode object MUST have non-empty KeyCharacters[], KeyLocations[], and LoreDependencies[] arrays — scan the source for characters, locations, and lore mentioned in each episode
+- **ARRAY TYPE ACCURACY**: Fields like HowTheyLook, HowTheySpeak, Gen.Tags, Gen.NegativeTags, AestheticLanguage.Keywords, Meta.EnvironmentArchetype, Meta.Style MUST be arrays (["..."]), NOT strings
+- **NO ABBREVIATION**: Every array example in the template shows 1 item as a pattern. Your output must include ALL items from the source, not just 1.
