@@ -62,7 +62,7 @@ export async function GET(req: Request): Promise<Response> {
     const secret = url.searchParams.get("secret");
     
     // Use environment variable or default for dev
-    const expectedSecret = process.env.ADMIN_SECRET || "storyline-admin-2024";
+    const expectedSecret = process.env.ADMIN_SECRET || "alexandria-admin-2024";
     
     if (secret !== expectedSecret) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 });

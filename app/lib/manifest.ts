@@ -97,7 +97,7 @@ export type ProjectManifest = {
 
 // Default schema template
 const DEFAULT_SCHEMA = {
-  schemaId: "storyline-schema",
+  schemaId: "alexandria-schema",
   version: "0.1.1",
   levels: ["L1", "L2", "L3"],
   domains: ["OVERVIEW", "CHARACTERS", "WORLD", "LORE", "STYLE", "STORY"],
@@ -113,7 +113,7 @@ export function newManifest(projectId: string): ProjectManifest {
     createdAt: new Date().toISOString(),
     status: "empty",
     settings: {
-      aiRules: `You are the "STORYLINE Exec". Be strict and coherent. Do not invent details.`,
+      aiRules: `You are the "ALEXANDRIA Archivist". Catalog images accurately. Do not invent details.`,
       uiFieldsJson: JSON.stringify({ fields: [] }, null, 2),
       taggingJson: JSON.stringify(
         { max_tags_per_image: 25, min_word_len: 3, banned: [], required: [] },
