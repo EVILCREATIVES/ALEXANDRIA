@@ -1,9 +1,6 @@
 {
   "functions": {
-    "app/api/extraction/run/route.ts": {
-      "maxDuration": 800
-    },
-    "app/api/extraction/extract-pdf/route.ts": {
+    "app/api/projects/assets/detect-gemini/route.ts": {
       "maxDuration": 300
     }
   }
