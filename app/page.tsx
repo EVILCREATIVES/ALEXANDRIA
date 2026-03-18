@@ -528,6 +528,9 @@ export default function Page() {
 
       const allPages: Array<{ pageNumber: number; url: string; width: number; height: number }> = [];
 
+      // Render all pages first (must be sequential due to pdf.js), then upload in parallel batches
+      const renderedPages: Array<{ pageNumber: number; blob: Blob; width: number; height: number }> = [];
+
       for (let pageNumber = 1; pageNumber <= totalPages; pageNumber++) {
         setRasterProgress((p) => ({ ...p, currentPage: pageNumber }));
         const page = await pdf.getPage(pageNumber);
@@ -547,14 +550,24 @@ export default function Page() {
         const pngBlob = await new Promise<Blob>((resolve, reject) => {
           canvas.toBlob((b) => (b ? resolve(b) : reject(new Error("toBlob returned null"))), "image/png");
         });
-        const f = new File([pngBlob], `page-${pageNumber}.png`, { type: "image/png" });
-        const uploaded = await upload(`projects/${projectId}/pages/page-${pageNumber}.png`, f, {
-          access: "public",
-          handleUploadUrl: "/api/blob"
-        });
-        allPages.push({ pageNumber, url: uploaded.url, width: canvas.width, height: canvas.height });
-        setRasterProgress((p) => ({ ...p, uploaded: p.uploaded + 1 }));
-        log(`Uploaded page ${pageNumber}/${totalPages}`);
+        renderedPages.push({ pageNumber, blob: pngBlob, width: canvas.width, height: canvas.height });
+      }
+
+      // Upload in parallel batches of 4
+      const UPLOAD_BATCH = 4;
+      for (let i = 0; i < renderedPages.length; i += UPLOAD_BATCH) {
+        const batch = renderedPages.slice(i, i + UPLOAD_BATCH);
+        const results = await Promise.all(batch.map(async (rp) => {
+          const f = new File([rp.blob], `page-${rp.pageNumber}.png`, { type: "image/png" });
+          const uploaded = await upload(`projects/${projectId}/pages/page-${rp.pageNumber}.png`, f, {
+            access: "public",
+            handleUploadUrl: "/api/blob"
+          });
+          setRasterProgress((p) => ({ ...p, uploaded: p.uploaded + 1 }));
+          log(`Uploaded page ${rp.pageNumber}/${totalPages}`);
+          return { pageNumber: rp.pageNumber, url: uploaded.url, width: rp.width, height: rp.height };
+        }));
+        allPages.push(...results);
       }
 
       log(`Saving ${allPages.length} pages to manifest...`);
@@ -605,30 +618,36 @@ export default function Page() {
     try {
       const allResults: Map<number, Array<{ x: number; y: number; width: number; height: number; category?: string; title?: string; description?: string }>> = new Map();
 
-      log("=== Detecting images on all pages ===");
-      for (const page of pages) {
-        setSplitProgress((s) => ({ ...s, page: page.pageNumber }));
-        log(`Detecting on page ${page.pageNumber}...`);
+      // Detect images on pages in parallel batches of 3
+      log("=== Detecting images on all pages (parallel) ===");
+      const DETECT_BATCH = 3;
+      for (let i = 0; i < pages.length; i += DETECT_BATCH) {
+        const batch = pages.slice(i, i + DETECT_BATCH);
+        await Promise.all(batch.map(async (page) => {
+          setSplitProgress((s) => ({ ...s, page: Math.max(s.page, page.pageNumber) }));
+          log(`Detecting on page ${page.pageNumber}...`);
 
-        const detectRes = await fetch("/api/projects/assets/detect-gemini", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            pageUrl: page.url,
-            pageWidth: page.width,
-            pageHeight: page.height,
-            detectionRules: detectionRules || {}
-          })
-        });
-        if (!detectRes.ok) { log(`Detection failed page ${page.pageNumber}: ${await readErrorText(detectRes)}`); continue; }
+          const detectRes = await fetch("/api/projects/assets/detect-gemini", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              pageUrl: page.url,
+              pageWidth: page.width,
+              pageHeight: page.height,
+              detectionRules: detectionRules || {}
+            })
+          });
+          if (!detectRes.ok) { log(`Detection failed page ${page.pageNumber}: ${await readErrorText(detectRes)}`); return; }
 
-        const detected = (await detectRes.json()) as { boxes?: Array<{ x: number; y: number; width: number; height: number; category?: string; title?: string; description?: string }>; error?: string };
-        const boxes = detected.boxes ?? [];
-        log(`Page ${page.pageNumber}: ${boxes.length} images found`);
-        if (boxes.length > 0) allResults.set(page.pageNumber, boxes);
+          const detected = (await detectRes.json()) as { boxes?: Array<{ x: number; y: number; width: number; height: number; category?: string; title?: string; description?: string }>; error?: string };
+          const boxes = detected.boxes ?? [];
+          log(`Page ${page.pageNumber}: ${boxes.length} images found`);
+          if (boxes.length > 0) allResults.set(page.pageNumber, boxes);
+        }));
       }
 
-      log("=== Cropping and uploading assets ===");
+      // Crop and upload assets in parallel
+      log("=== Cropping and uploading assets (parallel) ===");
       const pagesWithDetections = pages.filter(p => allResults.has(p.pageNumber));
       for (const page of pagesWithDetections) {
         const boxes = allResults.get(page.pageNumber)!;
@@ -642,6 +661,8 @@ export default function Page() {
           el.src = bust(page.url);
         });
 
+        // Crop all assets from this page first
+        const croppedAssets: Array<{ assetId: string; pngBlob: Blob; bbox: AssetBBox; title?: string; description?: string; category?: string }> = [];
         for (let i = 0; i < boxes.length; i++) {
           const b = boxes[i];
           const bbox: AssetBBox = { x: b.x, y: b.y, w: b.width, h: b.height };
@@ -655,24 +676,31 @@ export default function Page() {
           const pngBlob = await new Promise<Blob>((resolve, reject) => {
             canvas.toBlob((bb) => (bb ? resolve(bb) : reject(new Error("toBlob returned null"))), "image/png");
           });
-
           const assetId = `p${page.pageNumber}-img${String(i + 1).padStart(2, "0")}`;
-          const imageFile = new File([pngBlob], `${assetId}.png`, { type: "image/png" });
-          const uploaded = await upload(`projects/${projectId}/assets/p${page.pageNumber}/${assetId}.png`, imageFile, {
-            access: "public",
-            handleUploadUrl: "/api/blob"
-          });
+          croppedAssets.push({ assetId, pngBlob, bbox, title: b.title, description: b.description, category: b.category });
+        }
 
-          const metadata = { assetId, pageNumber: page.pageNumber, url: uploaded.url, bbox, title: b.title, description: b.description, category: b.category };
-          const metaBlob = new Blob([JSON.stringify(metadata)], { type: "text/plain" });
-          const metaFile = new File([metaBlob], `${assetId}.meta.txt`, { type: "text/plain" });
-          await upload(`projects/${projectId}/assets/p${page.pageNumber}/${assetId}.meta.txt`, metaFile, {
-            access: "public",
-            handleUploadUrl: "/api/blob"
-          });
+        // Upload all assets from this page in parallel (batches of 4)
+        const ASSET_BATCH = 4;
+        for (let i = 0; i < croppedAssets.length; i += ASSET_BATCH) {
+          const batch = croppedAssets.slice(i, i + ASSET_BATCH);
+          await Promise.all(batch.map(async (asset) => {
+            const imageFile = new File([asset.pngBlob], `${asset.assetId}.png`, { type: "image/png" });
+            const uploaded = await upload(`projects/${projectId}/assets/p${page.pageNumber}/${asset.assetId}.png`, imageFile, {
+              access: "public",
+              handleUploadUrl: "/api/blob"
+            });
 
-          setSplitProgress((s) => ({ ...s, assetsUploaded: s.assetsUploaded + 1 }));
-          log(`Uploaded asset ${assetId}`);
+            const metadata = { assetId: asset.assetId, pageNumber: page.pageNumber, url: uploaded.url, bbox: asset.bbox, title: asset.title, description: asset.description, category: asset.category };
+            await upload(`projects/${projectId}/assets/p${page.pageNumber}/${asset.assetId}.meta.txt`,
+              new File([JSON.stringify(metadata)], `${asset.assetId}.meta.txt`, { type: "text/plain" }), {
+              access: "public",
+              handleUploadUrl: "/api/blob"
+            });
+
+            setSplitProgress((s) => ({ ...s, assetsUploaded: s.assetsUploaded + 1 }));
+            log(`Uploaded asset ${asset.assetId}`);
+          }));
         }
       }
 
