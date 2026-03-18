@@ -5,6 +5,7 @@ const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
 
 // Allowed models for detection
 const ALLOWED_MODELS = [
+  "gemini-3.1-flash-lite-preview",
   "gemini-3-flash-preview",
   "gemini-3-pro-preview",
   "gemini-2.5-pro-preview",
@@ -15,7 +16,7 @@ const ALLOWED_MODELS = [
   "gemini-1.5-flash",
 ] as const;
 
-const DEFAULT_MODEL = "gemini-2.0-flash";
+const DEFAULT_MODEL = "gemini-3.1-flash-lite-preview";
 
 // Output box format matching existing manifest structure
 interface DetectedBox {
