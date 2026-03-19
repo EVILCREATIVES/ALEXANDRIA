@@ -18,6 +18,10 @@ type PageAsset = {
   metadata?: Record<string, string>;
   geo?: { lat: number; lng: number; placeName?: string };
   dateInfo?: { date?: string; era?: string; label?: string };
+  tags?: string[];
+  negativeTags?: string[];
+  trigger?: string;
+  tagRationale?: string;
 };
 
 type SettingsHistoryEntry = {
@@ -154,8 +158,185 @@ function XIcon() {
   );
 }
 
+/* ───────── Asset Detail Overlay ───────── */
+function AssetDetailOverlay({ asset, onClose }: { asset: PageAsset & { pageNumber: number }; onClose: () => void }) {
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [onClose]);
+
+  const hasGeo = asset.geo && (asset.geo.lat || asset.geo.lng);
+  const hasDate = asset.dateInfo && (asset.dateInfo.label || asset.dateInfo.era || asset.dateInfo.date);
+  const hasMeta = asset.metadata && Object.keys(asset.metadata).length > 0;
+  const hasTags = asset.tags && asset.tags.length > 0;
+  const hasNegTags = asset.negativeTags && asset.negativeTags.length > 0;
+
+  return (
+    <div onClick={onClose} style={{
+      position: "fixed", inset: 0, zIndex: 9999,
+      background: "rgba(0,0,0,0.7)", backdropFilter: "blur(6px)",
+      display: "flex", alignItems: "center", justifyContent: "center",
+      padding: 20,
+    }}>
+      <div onClick={(e) => e.stopPropagation()} style={{
+        background: "#faf8f5", borderRadius: 16, maxWidth: 720, width: "100%",
+        maxHeight: "90vh", overflow: "auto",
+        boxShadow: "0 20px 60px rgba(0,0,0,0.4)",
+      }}>
+        {/* Image */}
+        <div style={{ position: "relative", background: "#e5e0d5", borderRadius: "16px 16px 0 0", overflow: "hidden" }}>
+          <img
+            src={asset.url}
+            alt={asset.title || asset.assetId}
+            style={{ width: "100%", maxHeight: 420, objectFit: "contain", display: "block" }}
+          />
+          <button type="button" onClick={onClose} style={{
+            position: "absolute", top: 12, right: 12,
+            background: "rgba(0,0,0,0.6)", color: "#fff", border: "none",
+            borderRadius: 8, width: 36, height: 36, cursor: "pointer",
+            display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18,
+          }}>✕</button>
+          {asset.category && (
+            <span style={{
+              position: "absolute", bottom: 12, left: 12,
+              background: "rgba(0,0,0,0.7)", color: "#fff",
+              padding: "4px 12px", borderRadius: 6, fontSize: 12, fontWeight: 600,
+              textTransform: "capitalize",
+            }}>
+              {asset.category}
+            </span>
+          )}
+        </div>
+
+        {/* Content */}
+        <div style={{ padding: "20px 24px 24px" }}>
+          {/* Title & ID */}
+          <h2 style={{ fontSize: 20, fontWeight: 700, color: "#1a1510", margin: 0 }}>
+            {asset.title || asset.assetId}
+          </h2>
+          <div style={{ fontSize: 12, color: "#a89e8c", marginTop: 4 }}>
+            {asset.assetId} • Page {asset.pageNumber}
+          </div>
+
+          {/* Description */}
+          {asset.description && (
+            <p style={{ fontSize: 14, color: "#4a4237", lineHeight: 1.6, margin: "12px 0 0" }}>
+              {asset.description}
+            </p>
+          )}
+
+          {/* Info Grid */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 20 }}>
+            {/* Geo */}
+            <div style={{ background: "#f0ede7", borderRadius: 10, padding: "12px 14px" }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "#8a7e6b", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>📍 Location</div>
+              {hasGeo ? (
+                <>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: "#1a1510" }}>{asset.geo!.placeName || "Unknown"}</div>
+                  <div style={{ fontSize: 11, color: "#8a7e6b", marginTop: 2 }}>{asset.geo!.lat.toFixed(4)}, {asset.geo!.lng.toFixed(4)}</div>
+                </>
+              ) : (
+                <div style={{ fontSize: 13, color: "#b5a998", fontStyle: "italic" }}>Not determined</div>
+              )}
+            </div>
+
+            {/* Date */}
+            <div style={{ background: "#f0ede7", borderRadius: 10, padding: "12px 14px" }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "#8a7e6b", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>📅 Time Period</div>
+              {hasDate ? (
+                <>
+                  <div style={{ fontSize: 14, fontWeight: 600, color: "#1a1510" }}>{asset.dateInfo!.label || asset.dateInfo!.era || ""}</div>
+                  {asset.dateInfo!.date && <div style={{ fontSize: 11, color: "#8a7e6b", marginTop: 2 }}>{asset.dateInfo!.date}</div>}
+                  {asset.dateInfo!.era && asset.dateInfo!.label && <div style={{ fontSize: 11, color: "#8a7e6b", marginTop: 2 }}>{asset.dateInfo!.era}</div>}
+                </>
+              ) : (
+                <div style={{ fontSize: 13, color: "#b5a998", fontStyle: "italic" }}>Not determined</div>
+              )}
+            </div>
+          </div>
+
+          {/* Bounding Box */}
+          <div style={{ background: "#f0ede7", borderRadius: 10, padding: "12px 14px", marginTop: 12 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: "#8a7e6b", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>📐 Bounding Box</div>
+            <div style={{ fontSize: 12, color: "#4a4237", fontFamily: "monospace" }}>
+              x: {asset.bbox.x} &nbsp; y: {asset.bbox.y} &nbsp; w: {asset.bbox.w} &nbsp; h: {asset.bbox.h}
+            </div>
+          </div>
+
+          {/* Metadata */}
+          {hasMeta && (
+            <div style={{ marginTop: 16 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "#8a7e6b", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>🔬 Content Metadata</div>
+              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 8 }}>
+                {Object.entries(asset.metadata!).map(([k, v]) => (
+                  <div key={k} style={{ background: "#f0ede7", borderRadius: 8, padding: "8px 12px" }}>
+                    <div style={{ fontSize: 10, fontWeight: 600, color: "#8a7e6b", textTransform: "uppercase" }}>{k}</div>
+                    <div style={{ fontSize: 13, color: "#1a1510", marginTop: 2 }}>{v}</div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Tags */}
+          {hasTags && (
+            <div style={{ marginTop: 16 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "#8a7e6b", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>🏷️ Tags</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {asset.tags!.map((tag) => (
+                  <span key={tag} style={{
+                    fontSize: 12, background: "#dcd5c8", color: "#3a3428",
+                    padding: "3px 10px", borderRadius: 12,
+                  }}>{tag}</span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Negative Tags */}
+          {hasNegTags && (
+            <div style={{ marginTop: 12 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "#8a7e6b", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>🚫 Negative Tags</div>
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
+                {asset.negativeTags!.map((tag) => (
+                  <span key={tag} style={{
+                    fontSize: 12, background: "#f5e0e0", color: "#8a3a3a",
+                    padding: "3px 10px", borderRadius: 12,
+                  }}>{tag}</span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Tag Rationale */}
+          {asset.tagRationale && (
+            <div style={{ marginTop: 12 }}>
+              <div style={{ fontSize: 11, fontWeight: 600, color: "#8a7e6b", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>💬 Tag Rationale</div>
+              <div style={{ fontSize: 12, color: "#4a4237", lineHeight: 1.5, background: "#f0ede7", borderRadius: 8, padding: "10px 14px" }}>
+                {asset.tagRationale}
+              </div>
+            </div>
+          )}
+
+          {/* URLs */}
+          <div style={{ marginTop: 16, borderTop: "1px solid #e5e0d5", paddingTop: 12 }}>
+            <div style={{ fontSize: 11, fontWeight: 600, color: "#8a7e6b", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>🔗 URLs</div>
+            <div style={{ fontSize: 11, color: "#8a7e6b", wordBreak: "break-all", lineHeight: 1.6 }}>
+              <div><strong>Full:</strong> <a href={asset.url} target="_blank" rel="noopener noreferrer" style={{ color: "#6b5d4d" }}>{asset.url}</a></div>
+              {asset.thumbnailUrl && (
+                <div style={{ marginTop: 4 }}><strong>Thumb:</strong> <a href={asset.thumbnailUrl} target="_blank" rel="noopener noreferrer" style={{ color: "#6b5d4d" }}>{asset.thumbnailUrl}</a></div>
+              )}
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 /* ───────── Map View ───────── */
-function MapView({ assets }: { assets: (PageAsset & { pageNumber: number })[] }) {
+function MapView({ assets, onSelect }: { assets: (PageAsset & { pageNumber: number })[]; onSelect?: (a: PageAsset & { pageNumber: number }) => void }) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<unknown>(null);
   const geoAssets = useMemo(() => assets.filter((a) => a.geo), [assets]);
@@ -198,8 +379,19 @@ function MapView({ assets }: { assets: (PageAsset & { pageNumber: number })[] })
         const pos: [number, number] = [asset.geo.lat, asset.geo.lng];
         points.push(pos);
         const thumb = asset.thumbnailUrl || asset.url;
-        const popup = `<div style="text-align:center;max-width:200px"><img src="${thumb}" style="width:100%;max-height:120px;object-fit:cover;border-radius:4px;margin-bottom:4px"/><div style="font-weight:600;font-size:12px">${asset.title || asset.assetId}</div><div style="font-size:11px;color:#666">${asset.geo.placeName || ""}</div>${asset.dateInfo?.label ? `<div style="font-size:11px;color:#888">📅 ${asset.dateInfo.label}</div>` : ""}</div>`;
+        const popup = `<div style="text-align:center;max-width:200px"><img src="${thumb}" style="width:100%;max-height:120px;object-fit:cover;border-radius:4px;margin-bottom:4px"/><div style="font-weight:600;font-size:12px">${asset.title || asset.assetId}</div><div style="font-size:11px;color:#666">${asset.geo.placeName || ""}</div>${asset.dateInfo?.label ? `<div style="font-size:11px;color:#888">📅 ${asset.dateInfo.label}</div>` : ""}<button data-asset-id="${asset.assetId}" class="map-detail-btn" style="margin-top:6px;padding:3px 10px;font-size:11px;background:#1a1510;color:#fff;border:none;border-radius:4px;cursor:pointer">View Details</button></div>`;
         L.marker(pos).addTo(map).bindPopup(popup);
+      }
+
+      // Event delegation for popup "View Details" buttons
+      if (onSelect) {
+        mapRef.current.addEventListener("click", (e) => {
+          const btn = (e.target as HTMLElement).closest(".map-detail-btn") as HTMLElement | null;
+          if (!btn) return;
+          const aid = btn.dataset.assetId;
+          const found = geoAssets.find((a) => a.assetId === aid);
+          if (found) onSelect(found);
+        });
       }
 
       if (points.length > 1) {
@@ -239,7 +431,7 @@ function MapView({ assets }: { assets: (PageAsset & { pageNumber: number })[] })
 }
 
 /* ───────── Timeline View ───────── */
-function TimelineView({ assets }: { assets: (PageAsset & { pageNumber: number })[] }) {
+function TimelineView({ assets, onSelect }: { assets: (PageAsset & { pageNumber: number })[]; onSelect?: (a: PageAsset & { pageNumber: number }) => void }) {
   const timeAssets = useMemo(() => {
     const withDate = assets.filter((a) => a.dateInfo);
     // Sort by date string (ISO-ish), then by era
@@ -300,9 +492,10 @@ function TimelineView({ assets }: { assets: (PageAsset & { pageNumber: number })
             {/* Assets in this era */}
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 12 }}>
               {group.items.map((asset) => (
-                <div key={asset.assetId} style={{
+                <div key={asset.assetId} onClick={() => onSelect?.(asset)} style={{
                   display: "flex", gap: 10, padding: 10, background: "#f8f6f3",
-                  borderRadius: 8, border: "1px solid #e5e0d5", position: "relative"
+                  borderRadius: 8, border: "1px solid #e5e0d5", position: "relative",
+                  cursor: onSelect ? "pointer" : undefined,
                 }}>
                   {/* Timeline dot connector */}
                   <div style={{
@@ -428,6 +621,7 @@ export default function Page() {
   const [thumbnailsBusy, setThumbnailsBusy] = useState(false);
   const [enrichBusy, setEnrichBusy] = useState(false);
   const [viewMode, setViewMode] = useState<"grid" | "map" | "timeline">("grid");
+  const [selectedAsset, setSelectedAsset] = useState<(PageAsset & { pageNumber: number }) | null>(null);
 
   /* ── Debug ── */
   const [debugLogOpen, setDebugLogOpen] = useState(false);
@@ -1510,10 +1704,14 @@ export default function Page() {
                     {viewMode === "grid" && (
                       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 16 }}>
                         {allAssets.map((asset) => (
-                          <div key={asset.assetId} style={{
+                          <div key={asset.assetId} onClick={() => setSelectedAsset(asset)} style={{
                             background: "#f8f6f3", borderRadius: 10, border: "1px solid #e5e0d5",
-                            overflow: "hidden", position: "relative"
-                          }}>
+                            overflow: "hidden", position: "relative", cursor: "pointer",
+                            transition: "box-shadow 0.15s",
+                          }}
+                          onMouseEnter={(e) => { e.currentTarget.style.boxShadow = "0 4px 16px rgba(0,0,0,0.12)"; }}
+                          onMouseLeave={(e) => { e.currentTarget.style.boxShadow = "none"; }}
+                          >
                             <div style={{ position: "relative", background: "#e5e0d5" }}>
                               <img
                                 src={asset.thumbnailUrl || asset.url}
@@ -1528,7 +1726,7 @@ export default function Page() {
                                   img.src = asset.url;
                                 }}
                               />
-                              <button type="button" onClick={() => deleteAsset(asset.pageNumber, asset.assetId)}
+                              <button type="button" onClick={(e) => { e.stopPropagation(); deleteAsset(asset.pageNumber, asset.assetId); }}
                                 disabled={!!deletingAssets[`${asset.pageNumber}-${asset.assetId}`]}
                                 style={{
                                   position: "absolute", top: 6, right: 6,
@@ -1581,10 +1779,10 @@ export default function Page() {
                     )}
 
                     {/* MAP VIEW */}
-                    {viewMode === "map" && <MapView assets={allAssets} />}
+                    {viewMode === "map" && <MapView assets={allAssets} onSelect={setSelectedAsset} />}
 
                     {/* TIMELINE VIEW */}
-                    {viewMode === "timeline" && <TimelineView assets={allAssets} />}
+                    {viewMode === "timeline" && <TimelineView assets={allAssets} onSelect={setSelectedAsset} />}
                   </>
                 )}
               </div>
@@ -1791,6 +1989,9 @@ export default function Page() {
           </div>
         </div>
       )}
+
+      {/* ═══════ ASSET DETAIL OVERLAY ═══════ */}
+      {selectedAsset && <AssetDetailOverlay asset={selectedAsset} onClose={() => setSelectedAsset(null)} />}
 
       {/* ═══════ HIDDEN FILE INPUT ═══════ */}
       <input ref={fileRef} type="file" accept=".pdf" style={{ display: "none" }}
