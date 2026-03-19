@@ -15,6 +15,7 @@ type PageAsset = {
   title?: string;
   description?: string;
   category?: string;
+  metadata?: Record<string, string>;
   geo?: { lat: number; lng: number; placeName?: string };
   dateInfo?: { date?: string; era?: string; label?: string };
 };
@@ -826,7 +827,7 @@ export default function Page() {
     log("Starting image detection with Gemini...");
 
     try {
-      const allResults: Map<number, Array<{ x: number; y: number; width: number; height: number; category?: string; title?: string; description?: string }>> = new Map();
+      const allResults: Map<number, Array<{ x: number; y: number; width: number; height: number; category?: string; title?: string; description?: string; metadata?: Record<string, string> }>> = new Map();
 
       // Detect images on pages in parallel batches of 3
       log("=== Detecting images on all pages (parallel) ===");
@@ -849,7 +850,7 @@ export default function Page() {
           });
           if (!detectRes.ok) { log(`Detection failed page ${page.pageNumber}: ${await readErrorText(detectRes)}`); return; }
 
-          const detected = (await detectRes.json()) as { boxes?: Array<{ x: number; y: number; width: number; height: number; category?: string; title?: string; description?: string }>; error?: string };
+          const detected = (await detectRes.json()) as { boxes?: Array<{ x: number; y: number; width: number; height: number; category?: string; title?: string; description?: string; metadata?: Record<string, string> }>; error?: string };
           const boxes = detected.boxes ?? [];
           log(`Page ${page.pageNumber}: ${boxes.length} images found`);
           if (boxes.length > 0) allResults.set(page.pageNumber, boxes);
@@ -872,7 +873,7 @@ export default function Page() {
         });
 
         // Crop all assets from this page first
-        const croppedAssets: Array<{ assetId: string; pngBlob: Blob; bbox: AssetBBox; title?: string; description?: string; category?: string }> = [];
+        const croppedAssets: Array<{ assetId: string; pngBlob: Blob; bbox: AssetBBox; title?: string; description?: string; category?: string; metadata?: Record<string, string> }> = [];
         for (let i = 0; i < boxes.length; i++) {
           const b = boxes[i];
           const bbox: AssetBBox = { x: b.x, y: b.y, w: b.width, h: b.height };
@@ -887,7 +888,7 @@ export default function Page() {
             canvas.toBlob((bb) => (bb ? resolve(bb) : reject(new Error("toBlob returned null"))), "image/png");
           });
           const assetId = `p${page.pageNumber}-img${String(i + 1).padStart(2, "0")}`;
-          croppedAssets.push({ assetId, pngBlob, bbox, title: b.title, description: b.description, category: b.category });
+          croppedAssets.push({ assetId, pngBlob, bbox, title: b.title, description: b.description, category: b.category, metadata: b.metadata });
         }
 
         // Upload all assets from this page in parallel (batches of 4)
@@ -901,7 +902,7 @@ export default function Page() {
               handleUploadUrl: "/api/blob"
             });
 
-            const metadata = { assetId: asset.assetId, pageNumber: page.pageNumber, url: uploaded.url, bbox: asset.bbox, title: asset.title, description: asset.description, category: asset.category };
+            const metadata = { assetId: asset.assetId, pageNumber: page.pageNumber, url: uploaded.url, bbox: asset.bbox, title: asset.title, description: asset.description, category: asset.category, metadata: asset.metadata };
             await upload(`projects/${projectId}/assets/p${page.pageNumber}/${asset.assetId}.meta.txt`,
               new File([JSON.stringify(metadata)], `${asset.assetId}.meta.txt`, { type: "text/plain" }), {
               access: "public",
@@ -1554,6 +1555,18 @@ export default function Page() {
                               {asset.description && (
                                 <div style={{ fontSize: 12, color: "#6b6355", lineHeight: 1.4 }}>
                                   {asset.description}
+                                </div>
+                              )}
+                              {asset.metadata && Object.keys(asset.metadata).length > 0 && (
+                                <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
+                                  {Object.entries(asset.metadata).map(([k, v]) => (
+                                    <span key={k} style={{
+                                      fontSize: 10, background: "#e8e3d9", color: "#5a5245",
+                                      padding: "1px 6px", borderRadius: 3
+                                    }}>
+                                      {k}: {v}
+                                    </span>
+                                  ))}
                                 </div>
                               )}
                               <div style={{ fontSize: 11, color: "#a89e8c", marginTop: 6 }}>

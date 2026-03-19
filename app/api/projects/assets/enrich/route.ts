@@ -42,24 +42,32 @@ const enrichSchema: Schema = {
   },
 };
 
-const PROMPT = `You are an expert archivist analyzing images from a document. For each image, determine:
+const PROMPT = `You are an expert archivist analyzing images extracted from document pages. For each image, determine geographic and temporal context.
 
-1. **Geographic context**: Where in the world is this image set, depicts, or is associated with? Look for:
-   - Depicted locations (cities, landmarks, landscapes, buildings)
-   - Text/labels mentioning places
-   - Architectural or cultural indicators of geography
-   - Maps or diagrams showing locations
-   Only provide coordinates if you can reasonably determine a location. Use the center of a city/region if exact location is unclear.
+You will receive:
+1. The FULL PAGE image where each asset was extracted from — use visible text, captions, labels, headings, and surrounding context to inform your analysis
+2. Each individual cropped asset image
 
-2. **Temporal context**: When does this image relate to? Look for:
-   - Depicted time periods (fashion, technology, architecture)
-   - Dates written in the image
-   - Historical events shown
-   - Art style indicating era
-   Provide a date/year if possible, always provide an era and display label.
+Use ALL available context from the page (text, captions, dates, place names, headings, footnotes) to enrich each asset.
+
+**Geographic context** — Where in the world is this image set, depicts, or referenced by surrounding page text?
+- Depicted locations (cities, landmarks, landscapes, buildings)
+- Place names mentioned in page text near the image
+- Captions, labels, or headings referencing geography
+- Architectural or cultural indicators
+- Maps or diagrams showing locations
+Only provide coordinates if you can reasonably determine a location. Use city/region center if exact location is unclear.
+
+**Temporal context** — When does this image relate to? Use both visual and textual cues:
+- Dates in page text, captions, or image itself
+- Depicted time periods (fashion, technology, architecture)
+- Historical events referenced in surrounding text
+- Publication dates, copyright notices
+- Art style indicating era
+Provide a date/year if possible, always provide an era and display label.
 
 For fictional/fantasy content: Use real-world analogs for era (e.g. "Medieval-inspired") and leave geo as null unless a real location is referenced.
-For logos, diagrams, charts, or abstract images: Set both geo and dateInfo to null unless they contain clear geographic or temporal information.
+For logos, diagrams, charts, or abstract images: Set both to null unless page context provides clear geographic or temporal information.
 
 Analyze these images:
 `;
@@ -94,13 +102,19 @@ export async function POST(req: NextRequest): Promise<Response> {
     return NextResponse.json({ ok: false, error: `Failed to load manifest: ${e instanceof Error ? e.message : e}` }, { status: 400 });
   }
 
-  // Collect assets that haven't been enriched yet
+  // Collect assets that haven't been enriched yet, grouped by page
   const unenriched: (PageAsset & { pageNumber: number })[] = [];
+  const pageImageMap = new Map<number, string>(); // pageNumber -> page image URL
   for (const page of manifest.pages || []) {
+    let hasUnenriched = false;
     for (const asset of page.assets || []) {
       if (!asset.geo && !asset.dateInfo) {
         unenriched.push({ ...asset, pageNumber: page.pageNumber });
+        hasUnenriched = true;
       }
+    }
+    if (hasUnenriched) {
+      pageImageMap.set(page.pageNumber, page.url);
     }
   }
 
@@ -125,7 +139,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   }
 
   for (const batch of batches) {
-    // Build image parts for Gemini
+    // Build image parts for Gemini — include page images for context
     const imageParts: Array<{ inlineData: { data: string; mimeType: string } } | { text: string }> = [];
     const assetIndex: string[] = [];
 
@@ -136,7 +150,24 @@ export async function POST(req: NextRequest): Promise<Response> {
     }
     imageParts.push({ text: contextText });
 
-    // Fetch and add images
+    // Include full page images for context (deduplicated)
+    const pagesInBatch = [...new Set(batch.map(a => a.pageNumber))];
+    for (const pageNum of pagesInBatch) {
+      const pageUrl = pageImageMap.get(pageNum);
+      if (!pageUrl) continue;
+      try {
+        const pageRes = await fetch(pageUrl);
+        if (!pageRes.ok) continue;
+        const pageBuf = Buffer.from(await pageRes.arrayBuffer());
+        const pageMime = pageRes.headers.get("content-type") || "image/png";
+        imageParts.push({ text: `\n--- Full page ${pageNum} (use text, captions, labels visible here for context) ---` });
+        imageParts.push({ inlineData: { data: pageBuf.toString("base64"), mimeType: pageMime } });
+      } catch {
+        console.error(`[enrich] Failed to fetch page image for page ${pageNum}`);
+      }
+    }
+
+    // Fetch and add individual asset images
     for (const asset of batch) {
       const imageUrl = asset.thumbnailUrl || asset.url;
       try {
@@ -145,7 +176,7 @@ export async function POST(req: NextRequest): Promise<Response> {
         const buf = Buffer.from(await imgRes.arrayBuffer());
         const mimeType = imgRes.headers.get("content-type") || "image/png";
         imageParts.push({ inlineData: { data: buf.toString("base64"), mimeType } });
-        imageParts.push({ text: `(Above image is assetId: "${asset.assetId}")` });
+        imageParts.push({ text: `(Above image is assetId: "${asset.assetId}" from page ${asset.pageNumber})` });
         assetIndex.push(asset.assetId);
       } catch {
         console.error(`[enrich] Failed to fetch image for ${asset.assetId}`);

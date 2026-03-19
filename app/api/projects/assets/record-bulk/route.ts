@@ -16,6 +16,7 @@ type Body = {
     title?: string;
     description?: string;
     category?: string;
+    metadata?: Record<string, string>;
   }>;
 };
 
@@ -86,7 +87,10 @@ export async function POST(req: Request): Promise<Response> {
         tags: Array.isArray(a.tags) ? a.tags : byId.get(a.assetId)?.tags,
         title: a.title || byId.get(a.assetId)?.title,
         description: a.description || byId.get(a.assetId)?.description,
-        category: a.category || byId.get(a.assetId)?.category
+        category: a.category || byId.get(a.assetId)?.category,
+        metadata: a.metadata && Object.keys(a.metadata).length > 0
+          ? a.metadata
+          : byId.get(a.assetId)?.metadata,
       };
       byId.set(a.assetId, merged);
     }

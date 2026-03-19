@@ -18,6 +18,7 @@ type AssetMetadata = {
   title?: string;
   description?: string;
   category?: string;
+  metadata?: Record<string, string>;
 };
 
 type ListResult = {
@@ -100,7 +101,8 @@ export async function POST(req: Request): Promise<Response> {
         bbox: meta.bbox,
         title: meta.title,
         description: meta.description,
-        category: meta.category
+        category: meta.category,
+        metadata: meta.metadata,
       };
 
       const existing = pageAssets.get(meta.pageNumber) || [];

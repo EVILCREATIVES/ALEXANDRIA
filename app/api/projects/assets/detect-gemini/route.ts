@@ -27,6 +27,7 @@ interface DetectedBox {
   category?: string;
   title?: string;
   description?: string;
+  metadata?: Record<string, string>;
 }
 
 // Simplified detection rules - PDF Vision Extractor approach
@@ -63,7 +64,20 @@ const analysisSchema: Schema = {
       },
       category: {
         type: SchemaType.STRING,
-        description: "Category: character, prop, weapon, location, keyArt, logo, diagram, chart, photo, illustration, object, other",
+        description: "Content-appropriate category determined by analyzing the image (e.g. portrait, landscape, character, vehicle, diagram, map, logo, architectural, still-life, fashion, wildlife, abstract, etc.)",
+      },
+      metadata: {
+        type: SchemaType.ARRAY,
+        description: "Dynamic content-specific metadata as key-value pairs. Keys depend on what is relevant to this image. Examples: author, year, style, medium, camera, lens, technique, period, material, culture, movement.",
+        nullable: true,
+        items: {
+          type: SchemaType.OBJECT,
+          properties: {
+            key: { type: SchemaType.STRING, description: "Metadata field name (e.g. 'camera', 'style', 'medium')" },
+            value: { type: SchemaType.STRING, description: "Metadata field value" },
+          },
+          required: ["key", "value"],
+        },
       },
       box_2d: {
         type: SchemaType.ARRAY,
@@ -75,24 +89,33 @@ const analysisSchema: Schema = {
   },
 };
 
-const DEFAULT_PROMPT = `Detect every image on this page. For each image found, provide its title, description, category, and bounding box.
+const DEFAULT_PROMPT = `Detect every image on this page. For each image found, provide its title, description, category, bounding box, and any relevant metadata.
 
 What counts as an image:
 - Illustrations, character art, portraits
 - Photos, screenshots
 - Location/environment scenes
 - Logos, key art, promotional images
-- Diagrams, charts, graphs
-- Props, weapons, objects
+- Diagrams, charts, graphs, maps
+- Props, weapons, objects, vehicles
+- Architectural drawings, fashion plates, still lifes
 
 What to ignore:
 - Text paragraphs, headings, page numbers
 - Decorative borders, watermarks
 
 Categorization:
-- character: face or body clearly visible
-- prop/weapon: objects, tools, weapons (even if held by a hand)
-- location, keyArt, logo, diagram, chart, photo, illustration, object, other
+Do NOT use a fixed category list. Analyze the actual content and assign the most specific, accurate category.
+Examples: portrait, landscape, character, vehicle, diagram, map, logo, architectural, still-life, fashion, wildlife, abstract, aerial, microscopy, x-ray, sketch, painting, engraving, screenshot, infographic, icon, etc.
+Use lowercase single words or hyphenated compounds.
+
+Metadata:
+Extract any content-specific metadata visible in or inferable from the image:
+- For photographs: style (e.g. "documentary", "studio"), camera/lens if EXIF-style data visible, technique (e.g. "long exposure", "HDR"), medium ("silver gelatin", "digital")
+- For artwork: medium (e.g. "oil on canvas", "watercolor"), style/movement (e.g. "impressionist", "art nouveau"), artist if signed or identifiable
+- For diagrams/charts: chartType (e.g. "bar chart", "flowchart"), subject
+- For any image: period, culture, material, technique — whatever is genuinely relevant
+Only include metadata keys that are clearly supported by visual evidence. Do not guess.
 
 Be thorough — check edges and corners too.`;
 
@@ -215,6 +238,7 @@ async function detectVisualElements(
         title: string;
         description: string;
         category?: string;
+        metadata?: Array<{ key: string; value: string }> | null;
         box_2d: number[];
       }>;
 
@@ -280,11 +304,21 @@ async function detectVisualElements(
         .map(el => {
           const { x, y, width, height } = convertBox2dToPixels(el.box_2d, pageWidth, pageHeight);
           console.log(`[detect-gemini] Element: title="${el.title}", desc="${el.description?.slice(0,50)}...", category="${el.category}"`);
+          // Clean metadata: convert key-value array to Record, remove null/empty values
+          const meta: Record<string, string> = {};
+          if (Array.isArray(el.metadata)) {
+            for (const kv of el.metadata) {
+              if (kv && kv.key && kv.value && String(kv.value).trim()) {
+                meta[String(kv.key).trim()] = String(kv.value).trim();
+              }
+            }
+          }
           return {
             x, y, width, height,
             title: el.title,
             description: el.description,
             category: el.category,
+            ...(Object.keys(meta).length > 0 ? { metadata: meta } : {}),
           };
         })
         .filter(box => box.width >= minSizePx && box.height >= minSizePx);

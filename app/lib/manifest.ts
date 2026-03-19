@@ -40,7 +40,8 @@ export type PageAsset = {
   tagRationale?: string;
   title?: string;       // Short descriptive title from detection
   description?: string; // Brief explanation of what element depicts
-  category?: string;    // Asset category from detection (character, location, keyArt, logo, etc.)
+  category?: string;    // AI-assigned category based on content analysis
+  metadata?: Record<string, string>; // Dynamic content-specific metadata (camera, author, style, medium, etc.)
   geo?: { lat: number; lng: number; placeName?: string };
   dateInfo?: { date?: string; era?: string; label?: string };
 };
