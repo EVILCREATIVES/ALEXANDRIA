@@ -241,6 +241,8 @@ export default function Page() {
   const [pagesPreviewOpen, setPagesPreviewOpen] = useState(false);
   const [deletingAssets, setDeletingAssets] = useState<Record<string, boolean>>({});
   const [thumbnailsBusy, setThumbnailsBusy] = useState(false);
+  const [styleBusy, setStyleBusy] = useState(false);
+  const [schemaBusy, setSchemaBusy] = useState(false);
 
   /* ── Debug ── */
   const [debugLogOpen, setDebugLogOpen] = useState(false);
@@ -416,6 +418,76 @@ export default function Page() {
       log(`Thumbnail error: ${msg}`);
     } finally {
       setThumbnailsBusy(false);
+    }
+  }
+
+  async function analyzeStyle() {
+    if (!projectId || !manifestUrl) return;
+    setStyleBusy(true);
+    setLastError("");
+    log("Starting style analysis...");
+    try {
+      const res = await fetch("/api/projects/style/analyze", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId, manifestUrl })
+      });
+      if (!res.ok) throw new Error(await readErrorText(res));
+      const data = (await res.json()) as { ok: boolean; manifestUrl?: string; analyzedImages?: number; error?: string };
+      if (!data.ok) throw new Error(data.error || "Style analysis failed");
+
+      const nextManifestUrl = data.manifestUrl || manifestUrl;
+      setManifestUrl(nextManifestUrl);
+      manifestUrlRef.current = nextManifestUrl;
+      setUrlParams(projectId, nextManifestUrl);
+      await loadManifest(nextManifestUrl);
+
+      log(`Style analysis complete. Images analyzed: ${data.analyzedImages ?? 0}`);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setLastError(msg);
+      log(`Style analysis error: ${msg}`);
+    } finally {
+      setStyleBusy(false);
+    }
+  }
+
+  async function generateSchemaResults() {
+    if (!projectId || !manifestUrl) return;
+    setSchemaBusy(true);
+    setLastError("");
+    log("Starting schema generation...");
+    try {
+      const fillRes = await fetch("/api/projects/schema/fill", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId, manifestUrl })
+      });
+      if (!fillRes.ok) throw new Error(await readErrorText(fillRes));
+      const fillData = (await fillRes.json()) as { ok: boolean; results?: string; error?: string };
+      if (!fillData.ok || !fillData.results) throw new Error(fillData.error || "Schema fill failed");
+
+      const saveRes = await fetch("/api/projects/schema/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId, manifestUrl, results: fillData.results })
+      });
+      if (!saveRes.ok) throw new Error(await readErrorText(saveRes));
+      const saveData = (await saveRes.json()) as { ok: boolean; manifestUrl?: string; schemaResultsUrl?: string; error?: string };
+      if (!saveData.ok || !saveData.manifestUrl) throw new Error(saveData.error || "Schema save failed");
+
+      setManifestUrl(saveData.manifestUrl);
+      manifestUrlRef.current = saveData.manifestUrl;
+      setUrlParams(projectId, saveData.manifestUrl);
+      await loadManifest(saveData.manifestUrl);
+
+      log(`Schema generated and saved${saveData.schemaResultsUrl ? `: ${saveData.schemaResultsUrl}` : ""}`);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setLastError(msg);
+      log(`Schema generation error: ${msg}`);
+    } finally {
+      setSchemaBusy(false);
     }
   }
 
@@ -979,6 +1051,10 @@ export default function Page() {
 
   const totalAssets = allAssets.length;
   const totalPages = manifest?.pages?.length || 0;
+  const styleAnalysisUrl = manifest?.styleAnalysis?.url || "";
+  const schemaResultsUrl = manifest?.schemaResults?.url || "";
+  const formattedTextUrl = manifest?.formattedText?.url || "";
+  const extractedTextUrl = manifest?.extractedText?.url || "";
 
   /* ════════════════════════════════════════════════════════════════════════════
      RENDER
@@ -1174,6 +1250,14 @@ export default function Page() {
               style={{ padding: "8px 16px", fontSize: 13, background: "#065f46", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", fontWeight: 500 }}>
               ▶ Run Full Pipeline
             </button>
+            <button type="button" onClick={() => analyzeStyle()} disabled={!!busy || styleBusy}
+              style={{ padding: "8px 16px", fontSize: 13, background: "#fff", color: "#1a1510", border: "1px solid #ccc", borderRadius: 6, cursor: "pointer" }}>
+              {styleBusy ? "Analyzing Style..." : "Analyze Style"}
+            </button>
+            <button type="button" onClick={() => generateSchemaResults()} disabled={!!busy || schemaBusy}
+              style={{ padding: "8px 16px", fontSize: 13, background: "#fff", color: "#1a1510", border: "1px solid #ccc", borderRadius: 6, cursor: "pointer" }}>
+              {schemaBusy ? "Generating Schema..." : "Generate Schema"}
+            </button>
             <div style={{ flex: 1 }} />
             <button type="button" onClick={() => generateThumbnails()} disabled={!!busy || thumbnailsBusy}
               style={{ padding: "8px 16px", fontSize: 13, background: "#fff", color: "#1a1510", border: "1px solid #ccc", borderRadius: 6, cursor: "pointer" }}>
@@ -1210,6 +1294,29 @@ export default function Page() {
                 <div style={{ fontSize: 24, fontWeight: 600, color: "#1a1510" }}>{s.value}</div>
               </div>
             ))}
+          </div>
+        )}
+
+        {projectId && (
+          <div style={{ marginBottom: 20, background: "#fff", borderRadius: 12, border: "1px solid #e5e0d5", padding: "14px 20px" }}>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "#1a1510", marginBottom: 8 }}>Generated Outputs</div>
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 8, fontSize: 13 }}>
+              <a href={styleAnalysisUrl || "#"} target="_blank" rel="noreferrer" style={{ color: styleAnalysisUrl ? "#065f46" : "#8a7e6b", pointerEvents: styleAnalysisUrl ? "auto" : "none" }}>
+                {styleAnalysisUrl ? "Open Style Analysis JSON" : "Style Analysis not generated"}
+              </a>
+              <a href={schemaResultsUrl || "#"} target="_blank" rel="noreferrer" style={{ color: schemaResultsUrl ? "#065f46" : "#8a7e6b", pointerEvents: schemaResultsUrl ? "auto" : "none" }}>
+                {schemaResultsUrl ? "Open Schema Results JSON" : "Schema Results not generated"}
+              </a>
+              <a href={formattedTextUrl || "#"} target="_blank" rel="noreferrer" style={{ color: formattedTextUrl ? "#065f46" : "#8a7e6b", pointerEvents: formattedTextUrl ? "auto" : "none" }}>
+                {formattedTextUrl ? "Open Formatted Text" : "Formatted Text not generated"}
+              </a>
+              <a href={extractedTextUrl || "#"} target="_blank" rel="noreferrer" style={{ color: extractedTextUrl ? "#065f46" : "#8a7e6b", pointerEvents: extractedTextUrl ? "auto" : "none" }}>
+                {extractedTextUrl ? "Open Extracted Text" : "Extracted Text not generated"}
+              </a>
+            </div>
+            <div style={{ marginTop: 8, fontSize: 12, color: "#8a7e6b" }}>
+              Map and timeline visual views are not built yet, but schema/style outputs are now directly accessible here.
+            </div>
           </div>
         )}
 
@@ -1270,6 +1377,14 @@ export default function Page() {
                             alt={asset.title || asset.assetId}
                             style={{ width: "100%", height: 180, objectFit: "cover", display: "block" }}
                             loading="lazy"
+                            onError={(e) => {
+                              // If thumbnail is stale/missing, fall back to the original image once.
+                              if (!asset.thumbnailUrl) return;
+                              const img = e.currentTarget;
+                              if (img.dataset.fallbackApplied === "1") return;
+                              img.dataset.fallbackApplied = "1";
+                              img.src = asset.url;
+                            }}
                           />
                           {/* Delete button */}
                           <button type="button" onClick={() => deleteAsset(asset.pageNumber, asset.assetId)}

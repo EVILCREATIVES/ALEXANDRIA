@@ -63,10 +63,20 @@ export async function POST(req: NextRequest): Promise<Response> {
       if (!Array.isArray(page.assets)) continue;
 
       for (const asset of page.assets) {
-        // Skip if thumbnail already exists
+        // Skip only when thumbnail URL exists and is reachable.
         if (asset.thumbnailUrl) {
-          skipped++;
-          continue;
+          try {
+            const thumbRes = await fetch(asset.thumbnailUrl, {
+              method: "HEAD",
+              cache: "no-store",
+            });
+            if (thumbRes.ok) {
+              skipped++;
+              continue;
+            }
+          } catch {
+            // Fall through and regenerate thumbnail.
+          }
         }
 
         // Skip if no original URL
