@@ -103,15 +103,17 @@ export async function POST(req: NextRequest): Promise<Response> {
   }
 
   // Collect assets that haven't been enriched yet, grouped by page
+  // An asset is "unenriched" if it was never processed (no _enriched flag)
   const unenriched: (PageAsset & { pageNumber: number })[] = [];
   const pageImageMap = new Map<number, string>(); // pageNumber -> page image URL
   for (const page of manifest.pages || []) {
     let hasUnenriched = false;
     for (const asset of page.assets || []) {
-      if (!asset.geo && !asset.dateInfo) {
-        unenriched.push({ ...asset, pageNumber: page.pageNumber });
-        hasUnenriched = true;
-      }
+      // Skip assets already processed (even if Gemini returned null for both)
+      if ((asset as Record<string, unknown>)._enriched) continue;
+      if (asset.geo || asset.dateInfo) continue; // already has data
+      unenriched.push({ ...asset, pageNumber: page.pageNumber });
+      hasUnenriched = true;
     }
     if (hasUnenriched) {
       pageImageMap.set(page.pageNumber, page.url);
@@ -121,6 +123,8 @@ export async function POST(req: NextRequest): Promise<Response> {
   if (unenriched.length === 0) {
     return NextResponse.json({ ok: true, enriched: 0, message: "All assets already enriched" });
   }
+
+  console.log(`[enrich] Found ${unenriched.length} unenriched assets across ${pageImageMap.size} pages`);
 
   const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
   const model = genAI.getGenerativeModel({
@@ -133,91 +137,134 @@ export async function POST(req: NextRequest): Promise<Response> {
   });
 
   let totalEnriched = 0;
-  const batches = [];
-  for (let i = 0; i < unenriched.length; i += batchSize) {
-    batches.push(unenriched.slice(i, i + batchSize));
+  const errors: string[] = [];
+
+  // Process per page (not arbitrary batches) to keep page context aligned
+  const byPage = new Map<number, (PageAsset & { pageNumber: number })[]>();
+  for (const a of unenriched) {
+    const arr = byPage.get(a.pageNumber) || [];
+    arr.push(a);
+    byPage.set(a.pageNumber, arr);
   }
 
-  for (const batch of batches) {
-    // Build image parts for Gemini — include page images for context
-    const imageParts: Array<{ inlineData: { data: string; mimeType: string } } | { text: string }> = [];
-    const assetIndex: string[] = [];
-
-    // Build context text listing what we're analyzing
-    let contextText = PROMPT + "\n";
-    for (const asset of batch) {
-      contextText += `\n- assetId: "${asset.assetId}", title: "${asset.title || "untitled"}", category: "${asset.category || "unknown"}", description: "${asset.description || "none"}", page: ${asset.pageNumber}`;
+  for (const [pageNum, pageAssets] of byPage) {
+    // Sub-batch within each page if many assets
+    const subBatches: typeof pageAssets[] = [];
+    for (let i = 0; i < pageAssets.length; i += batchSize) {
+      subBatches.push(pageAssets.slice(i, i + batchSize));
     }
-    imageParts.push({ text: contextText });
 
-    // Include full page images for context (deduplicated)
-    const pagesInBatch = [...new Set(batch.map(a => a.pageNumber))];
-    for (const pageNum of pagesInBatch) {
-      const pageUrl = pageImageMap.get(pageNum);
-      if (!pageUrl) continue;
+    // Fetch page image once per page
+    let pageImageData: { data: string; mimeType: string } | null = null;
+    const pageUrl = pageImageMap.get(pageNum);
+    if (pageUrl) {
       try {
         const pageRes = await fetch(pageUrl);
-        if (!pageRes.ok) continue;
-        const pageBuf = Buffer.from(await pageRes.arrayBuffer());
-        const pageMime = pageRes.headers.get("content-type") || "image/png";
-        imageParts.push({ text: `\n--- Full page ${pageNum} (use text, captions, labels visible here for context) ---` });
-        imageParts.push({ inlineData: { data: pageBuf.toString("base64"), mimeType: pageMime } });
-      } catch {
-        console.error(`[enrich] Failed to fetch page image for page ${pageNum}`);
+        if (pageRes.ok) {
+          const pageBuf = Buffer.from(await pageRes.arrayBuffer());
+          const pageMime = pageRes.headers.get("content-type") || "image/png";
+          pageImageData = { data: pageBuf.toString("base64"), mimeType: pageMime };
+          console.log(`[enrich] Page ${pageNum}: loaded page image (${(pageBuf.length / 1024).toFixed(0)}KB)`);
+        }
+      } catch (e) {
+        console.error(`[enrich] Failed to fetch page image for page ${pageNum}:`, e);
       }
     }
 
-    // Fetch and add individual asset images
-    for (const asset of batch) {
-      const imageUrl = asset.thumbnailUrl || asset.url;
-      try {
-        const imgRes = await fetch(imageUrl);
-        if (!imgRes.ok) continue;
-        const buf = Buffer.from(await imgRes.arrayBuffer());
-        const mimeType = imgRes.headers.get("content-type") || "image/png";
-        imageParts.push({ inlineData: { data: buf.toString("base64"), mimeType } });
-        imageParts.push({ text: `(Above image is assetId: "${asset.assetId}" from page ${asset.pageNumber})` });
-        assetIndex.push(asset.assetId);
-      } catch {
-        console.error(`[enrich] Failed to fetch image for ${asset.assetId}`);
+    for (const batch of subBatches) {
+      const imageParts: Array<{ inlineData: { data: string; mimeType: string } } | { text: string }> = [];
+      const assetIndex: string[] = [];
+
+      // Build context text
+      let contextText = PROMPT + "\n";
+      for (const asset of batch) {
+        contextText += `\n- assetId: "${asset.assetId}", title: "${asset.title || "untitled"}", category: "${asset.category || "unknown"}", description: "${asset.description || "none"}", page: ${asset.pageNumber}`;
       }
-    }
+      imageParts.push({ text: contextText });
 
-    if (assetIndex.length === 0) continue;
+      // Add page image for context (once per batch)
+      if (pageImageData) {
+        imageParts.push({ text: `\n--- Full page ${pageNum} (use visible text, captions, labels for context) ---` });
+        imageParts.push({ inlineData: pageImageData });
+      }
 
-    try {
-      const result = await model.generateContent(imageParts);
-      const text = result.response.text();
-      const parsed = JSON.parse(text) as Array<{
-        assetId: string;
-        geo?: { lat: number; lng: number; placeName: string } | null;
-        dateInfo?: { date?: string; era?: string; label: string } | null;
-      }>;
-
-      // Apply enrichment to manifest
-      for (const enrichment of parsed) {
-        if (!enrichment.assetId) continue;
-        for (const page of manifest.pages || []) {
-          const asset = page.assets?.find((a) => a.assetId === enrichment.assetId);
-          if (!asset) continue;
-          if (enrichment.geo) asset.geo = enrichment.geo;
-          if (enrichment.dateInfo) asset.dateInfo = enrichment.dateInfo;
-          totalEnriched++;
-          break;
+      // Fetch and add individual asset images
+      for (const asset of batch) {
+        const imageUrl = asset.thumbnailUrl || asset.url;
+        try {
+          const imgRes = await fetch(imageUrl);
+          if (!imgRes.ok) {
+            console.error(`[enrich] Failed to fetch asset image ${asset.assetId}: HTTP ${imgRes.status}`);
+            continue;
+          }
+          const buf = Buffer.from(await imgRes.arrayBuffer());
+          const mimeType = imgRes.headers.get("content-type") || "image/png";
+          imageParts.push({ inlineData: { data: buf.toString("base64"), mimeType } });
+          imageParts.push({ text: `(Above image is assetId: "${asset.assetId}" from page ${asset.pageNumber})` });
+          assetIndex.push(asset.assetId);
+        } catch (e) {
+          console.error(`[enrich] Failed to fetch image for ${asset.assetId}:`, e);
         }
       }
-    } catch (e) {
-      console.error(`[enrich] Gemini batch error:`, e);
+
+      if (assetIndex.length === 0) continue;
+
+      console.log(`[enrich] Page ${pageNum}: sending ${assetIndex.length} assets to Gemini (${imageParts.length} parts)`);
+
+      try {
+        const result = await model.generateContent(imageParts);
+        const text = result.response.text();
+        console.log(`[enrich] Gemini response (${text.length} chars): ${text.slice(0, 300)}...`);
+
+        const parsed = JSON.parse(text) as Array<{
+          assetId: string;
+          geo?: { lat: number; lng: number; placeName: string } | null;
+          dateInfo?: { date?: string; era?: string; label: string } | null;
+        }>;
+
+        // Apply enrichment to manifest
+        for (const enrichment of parsed) {
+          if (!enrichment.assetId) continue;
+          for (const page of manifest.pages || []) {
+            const asset = page.assets?.find((a) => a.assetId === enrichment.assetId);
+            if (!asset) continue;
+            if (enrichment.geo) asset.geo = enrichment.geo;
+            if (enrichment.dateInfo) asset.dateInfo = enrichment.dateInfo;
+            // Mark as processed so we don't retry assets where Gemini returned null
+            (asset as Record<string, unknown>)._enriched = true;
+            totalEnriched++;
+            break;
+          }
+        }
+
+        // Also mark any assets we sent but Gemini didn't return results for
+        for (const aid of assetIndex) {
+          if (parsed.some(p => p.assetId === aid)) continue;
+          for (const page of manifest.pages || []) {
+            const asset = page.assets?.find((a) => a.assetId === aid);
+            if (!asset) continue;
+            (asset as Record<string, unknown>)._enriched = true;
+            break;
+          }
+        }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error(`[enrich] Gemini batch error for page ${pageNum}:`, msg);
+        errors.push(`Page ${pageNum}: ${msg}`);
+      }
     }
   }
 
   // Save updated manifest
   const newManifestUrl = await saveManifest(manifest);
 
+  console.log(`[enrich] Complete: ${totalEnriched}/${unenriched.length} enriched, ${errors.length} errors`);
+
   return NextResponse.json({
     ok: true,
     enriched: totalEnriched,
     total: unenriched.length,
     manifestUrl: newManifestUrl,
+    ...(errors.length > 0 ? { errors } : {}),
   });
 }

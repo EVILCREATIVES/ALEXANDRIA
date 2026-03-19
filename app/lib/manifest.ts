@@ -44,6 +44,7 @@ export type PageAsset = {
   metadata?: Record<string, string>; // Dynamic content-specific metadata (camera, author, style, medium, etc.)
   geo?: { lat: number; lng: number; placeName?: string };
   dateInfo?: { date?: string; era?: string; label?: string };
+  _enriched?: boolean; // Flag: enrichment was attempted (even if Gemini returned null)
 };
 export type PageImage = {
   pageNumber: number;
