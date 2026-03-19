@@ -15,6 +15,8 @@ type PageAsset = {
   title?: string;
   description?: string;
   category?: string;
+  geo?: { lat: number; lng: number; placeName?: string };
+  dateInfo?: { date?: string; era?: string; label?: string };
 };
 
 type SettingsHistoryEntry = {
@@ -151,6 +153,194 @@ function XIcon() {
   );
 }
 
+/* ───────── Map View ───────── */
+function MapView({ assets }: { assets: (PageAsset & { pageNumber: number })[] }) {
+  const mapRef = useRef<HTMLDivElement>(null);
+  const mapInstanceRef = useRef<unknown>(null);
+  const geoAssets = useMemo(() => assets.filter((a) => a.geo), [assets]);
+
+  useEffect(() => {
+    if (!mapRef.current || geoAssets.length === 0) return;
+    if (mapInstanceRef.current) return; // already initialized
+
+    // Load Leaflet dynamically
+    const link = document.createElement("link");
+    link.rel = "stylesheet";
+    link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
+    document.head.appendChild(link);
+
+    const script = document.createElement("script");
+    script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
+    script.onload = () => {
+      const L = (window as Record<string, unknown>).L as {
+        map: (el: HTMLElement) => {
+          setView: (center: [number, number], zoom: number) => unknown;
+          remove: () => void;
+        };
+        tileLayer: (url: string, opts: Record<string, unknown>) => { addTo: (map: unknown) => void };
+        marker: (latlng: [number, number]) => { addTo: (map: unknown) => { bindPopup: (html: string) => void } };
+        latLngBounds: (points: [number, number][]) => unknown;
+      };
+      if (!L || !mapRef.current) return;
+
+      const map = L.map(mapRef.current).setView([20, 0], 2);
+      mapInstanceRef.current = map;
+
+      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
+        attribution: '&copy; <a href="https://openstreetmap.org">OSM</a>',
+        maxZoom: 18,
+      }).addTo(map);
+
+      const points: [number, number][] = [];
+      for (const asset of geoAssets) {
+        if (!asset.geo) continue;
+        const pos: [number, number] = [asset.geo.lat, asset.geo.lng];
+        points.push(pos);
+        const thumb = asset.thumbnailUrl || asset.url;
+        const popup = `<div style="text-align:center;max-width:200px"><img src="${thumb}" style="width:100%;max-height:120px;object-fit:cover;border-radius:4px;margin-bottom:4px"/><div style="font-weight:600;font-size:12px">${asset.title || asset.assetId}</div><div style="font-size:11px;color:#666">${asset.geo.placeName || ""}</div>${asset.dateInfo?.label ? `<div style="font-size:11px;color:#888">📅 ${asset.dateInfo.label}</div>` : ""}</div>`;
+        L.marker(pos).addTo(map).bindPopup(popup);
+      }
+
+      if (points.length > 1) {
+        (map as unknown as { fitBounds: (b: unknown, o: Record<string, unknown>) => void }).fitBounds(L.latLngBounds(points), { padding: [40, 40] });
+      } else if (points.length === 1) {
+        (map as unknown as { setView: (c: [number, number], z: number) => void }).setView(points[0], 6);
+      }
+    };
+    document.head.appendChild(script);
+
+    return () => {
+      if (mapInstanceRef.current) {
+        (mapInstanceRef.current as { remove: () => void }).remove();
+        mapInstanceRef.current = null;
+      }
+    };
+  }, [geoAssets]);
+
+  if (geoAssets.length === 0) {
+    return (
+      <div style={{ padding: "40px 20px", textAlign: "center", color: "#8a7e6b" }}>
+        <div style={{ fontSize: 40, marginBottom: 12 }}>🗺️</div>
+        <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>No geographic data yet</div>
+        <div style={{ fontSize: 13 }}>Click &quot;Enrich Geo/Timeline&quot; to analyze assets for location and time context.</div>
+      </div>
+    );
+  }
+
+  return (
+    <div>
+      <div style={{ fontSize: 12, color: "#8a7e6b", marginBottom: 8 }}>
+        {geoAssets.length} of {assets.length} assets have geographic data
+      </div>
+      <div ref={mapRef} style={{ width: "100%", height: 500, borderRadius: 8, border: "1px solid #e5e0d5" }} />
+    </div>
+  );
+}
+
+/* ───────── Timeline View ───────── */
+function TimelineView({ assets }: { assets: (PageAsset & { pageNumber: number })[] }) {
+  const timeAssets = useMemo(() => {
+    const withDate = assets.filter((a) => a.dateInfo);
+    // Sort by date string (ISO-ish), then by era
+    return withDate.sort((a, b) => {
+      const da = a.dateInfo?.date || a.dateInfo?.era || "";
+      const db = b.dateInfo?.date || b.dateInfo?.era || "";
+      return da.localeCompare(db);
+    });
+  }, [assets]);
+
+  if (timeAssets.length === 0) {
+    return (
+      <div style={{ padding: "40px 20px", textAlign: "center", color: "#8a7e6b" }}>
+        <div style={{ fontSize: 40, marginBottom: 12 }}>📅</div>
+        <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>No timeline data yet</div>
+        <div style={{ fontSize: 13 }}>Click &quot;Enrich Geo/Timeline&quot; to analyze assets for location and time context.</div>
+      </div>
+    );
+  }
+
+  // Group by era for visual separation
+  const groups: { era: string; items: typeof timeAssets }[] = [];
+  let currentEra = "";
+  for (const asset of timeAssets) {
+    const era = asset.dateInfo?.era || "Unknown Era";
+    if (era !== currentEra) {
+      currentEra = era;
+      groups.push({ era, items: [] });
+    }
+    groups[groups.length - 1].items.push(asset);
+  }
+
+  return (
+    <div>
+      <div style={{ fontSize: 12, color: "#8a7e6b", marginBottom: 16 }}>
+        {timeAssets.length} of {assets.length} assets have temporal data
+      </div>
+      <div style={{ position: "relative", paddingLeft: 32 }}>
+        {/* Vertical line */}
+        <div style={{ position: "absolute", left: 11, top: 0, bottom: 0, width: 2, background: "#e5e0d5" }} />
+
+        {groups.map((group) => (
+          <div key={group.era} style={{ marginBottom: 24 }}>
+            {/* Era label */}
+            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, marginLeft: -32 }}>
+              <div style={{
+                width: 24, height: 24, borderRadius: "50%", background: "#1a1510",
+                display: "flex", alignItems: "center", justifyContent: "center",
+                color: "#d4c5a9", fontSize: 10, fontWeight: 700, flexShrink: 0
+              }}>
+                ●
+              </div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: "#1a1510", letterSpacing: 0.5 }}>
+                {group.era}
+              </div>
+            </div>
+
+            {/* Assets in this era */}
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 12 }}>
+              {group.items.map((asset) => (
+                <div key={asset.assetId} style={{
+                  display: "flex", gap: 10, padding: 10, background: "#f8f6f3",
+                  borderRadius: 8, border: "1px solid #e5e0d5", position: "relative"
+                }}>
+                  {/* Timeline dot connector */}
+                  <div style={{
+                    position: "absolute", left: -26, top: 16,
+                    width: 10, height: 10, borderRadius: "50%",
+                    background: "#d4c5a9", border: "2px solid #e5e0d5"
+                  }} />
+                  <img
+                    src={asset.thumbnailUrl || asset.url}
+                    alt={asset.title || asset.assetId}
+                    style={{ width: 60, height: 60, objectFit: "cover", borderRadius: 6, flexShrink: 0 }}
+                    loading="lazy"
+                  />
+                  <div style={{ minWidth: 0, flex: 1 }}>
+                    <div style={{ fontSize: 12, fontWeight: 600, color: "#1a1510", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
+                      {asset.title || asset.assetId}
+                    </div>
+                    <div style={{ fontSize: 11, color: "#065f46", fontWeight: 500, marginTop: 2 }}>
+                      {asset.dateInfo?.label || asset.dateInfo?.date || ""}
+                    </div>
+                    {asset.geo?.placeName && (
+                      <div style={{ fontSize: 11, color: "#8a7e6b", marginTop: 1 }}>
+                        📍 {asset.geo.placeName}
+                      </div>
+                    )}
+                    <div style={{ fontSize: 10, color: "#a89e8c", marginTop: 2 }}>
+                      Page {asset.pageNumber}
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 /* ───────── Settings Tabs ───────── */
 function SettingsTabs({
   value,
@@ -235,6 +425,8 @@ export default function Page() {
   const [pagesPreviewOpen, setPagesPreviewOpen] = useState(false);
   const [deletingAssets, setDeletingAssets] = useState<Record<string, boolean>>({});
   const [thumbnailsBusy, setThumbnailsBusy] = useState(false);
+  const [enrichBusy, setEnrichBusy] = useState(false);
+  const [viewMode, setViewMode] = useState<"grid" | "map" | "timeline">("grid");
 
   /* ── Debug ── */
   const [debugLogOpen, setDebugLogOpen] = useState(false);
@@ -404,6 +596,36 @@ export default function Page() {
       log(`Thumbnail error: ${msg}`);
     } finally {
       setThumbnailsBusy(false);
+    }
+  }
+
+  async function enrichAssets() {
+    if (!projectId || !manifestUrl) return;
+    setEnrichBusy(true);
+    setLastError("");
+    log("Starting geo/timeline enrichment...");
+    try {
+      const res = await fetch("/api/projects/assets/enrich", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId, manifestUrl })
+      });
+      if (!res.ok) throw new Error(await readErrorText(res));
+      const data = (await res.json()) as { ok: boolean; enriched?: number; total?: number; manifestUrl?: string; error?: string };
+      if (!data.ok) throw new Error(data.error || "Enrichment failed");
+      log(`Enrichment complete: ${data.enriched ?? 0}/${data.total ?? 0} assets enriched`);
+      if (data.manifestUrl) {
+        setManifestUrl(data.manifestUrl);
+        manifestUrlRef.current = data.manifestUrl;
+        setUrlParams(projectId, data.manifestUrl);
+        await loadManifest(data.manifestUrl);
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setLastError(msg);
+      log(`Enrichment error: ${msg}`);
+    } finally {
+      setEnrichBusy(false);
     }
   }
 
@@ -1261,67 +1483,96 @@ export default function Page() {
                 {totalAssets === 0 ? (
                   <p style={{ color: "#8a7e6b", fontSize: 14 }}>No images extracted yet. Upload a source and run the pipeline.</p>
                 ) : (
-                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 16 }}>
-                    {allAssets.map((asset) => (
-                      <div key={asset.assetId} style={{
-                        background: "#f8f6f3", borderRadius: 10, border: "1px solid #e5e0d5",
-                        overflow: "hidden", position: "relative"
-                      }}>
-                        {/* Image */}
-                        <div style={{ position: "relative", background: "#e5e0d5" }}>
-                          <img
-                            src={asset.thumbnailUrl || asset.url}
-                            alt={asset.title || asset.assetId}
-                            style={{ width: "100%", height: 180, objectFit: "cover", display: "block" }}
-                            loading="lazy"
-                            onError={(e) => {
-                              // If thumbnail is stale/missing, fall back to the original image once.
-                              if (!asset.thumbnailUrl) return;
-                              const img = e.currentTarget;
-                              if (img.dataset.fallbackApplied === "1") return;
-                              img.dataset.fallbackApplied = "1";
-                              img.src = asset.url;
-                            }}
-                          />
-                          {/* Delete button */}
-                          <button type="button" onClick={() => deleteAsset(asset.pageNumber, asset.assetId)}
-                            disabled={!!deletingAssets[`${asset.pageNumber}-${asset.assetId}`]}
-                            style={{
-                              position: "absolute", top: 6, right: 6,
-                              background: "rgba(0,0,0,0.6)", color: "#fff", border: "none",
-                              borderRadius: 4, width: 28, height: 28, cursor: "pointer",
-                              display: "flex", alignItems: "center", justifyContent: "center"
-                            }}>
-                            <Trash />
-                          </button>
-                          {/* Category badge */}
-                          {asset.category && (
-                            <span style={{
-                              position: "absolute", bottom: 6, left: 6,
-                              background: "rgba(0,0,0,0.6)", color: "#fff",
-                              padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 500
-                            }}>
-                              {asset.category}
-                            </span>
-                          )}
-                        </div>
-                        {/* Info */}
-                        <div style={{ padding: "10px 12px" }}>
-                          <div style={{ fontSize: 13, fontWeight: 600, color: "#1a1510", marginBottom: 2 }}>
-                            {asset.title || asset.assetId}
-                          </div>
-                          {asset.description && (
-                            <div style={{ fontSize: 12, color: "#6b6355", lineHeight: 1.4 }}>
-                              {asset.description}
+                  <>
+                    {/* View mode tabs + enrich button */}
+                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
+                      {(["grid", "map", "timeline"] as const).map((mode) => (
+                        <button key={mode} type="button" onClick={() => setViewMode(mode)}
+                          style={{
+                            padding: "6px 14px", fontSize: 12, fontWeight: viewMode === mode ? 600 : 400,
+                            background: viewMode === mode ? "#1a1510" : "#fff",
+                            color: viewMode === mode ? "#d4c5a9" : "#1a1510",
+                            border: "1px solid #1a1510", borderRadius: 6, cursor: "pointer",
+                            textTransform: "capitalize"
+                          }}>
+                          {mode === "grid" ? "🖼️ Grid" : mode === "map" ? "🗺️ Map" : "📅 Timeline"}
+                        </button>
+                      ))}
+                      <div style={{ flex: 1 }} />
+                      <button type="button" onClick={() => enrichAssets()} disabled={!!busy || enrichBusy}
+                        style={{ padding: "6px 14px", fontSize: 12, background: "#065f46", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", fontWeight: 500 }}>
+                        {enrichBusy ? "Enriching..." : "🔍 Enrich Geo/Timeline"}
+                      </button>
+                    </div>
+
+                    {/* GRID VIEW */}
+                    {viewMode === "grid" && (
+                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 16 }}>
+                        {allAssets.map((asset) => (
+                          <div key={asset.assetId} style={{
+                            background: "#f8f6f3", borderRadius: 10, border: "1px solid #e5e0d5",
+                            overflow: "hidden", position: "relative"
+                          }}>
+                            <div style={{ position: "relative", background: "#e5e0d5" }}>
+                              <img
+                                src={asset.thumbnailUrl || asset.url}
+                                alt={asset.title || asset.assetId}
+                                style={{ width: "100%", height: 180, objectFit: "cover", display: "block" }}
+                                loading="lazy"
+                                onError={(e) => {
+                                  if (!asset.thumbnailUrl) return;
+                                  const img = e.currentTarget;
+                                  if (img.dataset.fallbackApplied === "1") return;
+                                  img.dataset.fallbackApplied = "1";
+                                  img.src = asset.url;
+                                }}
+                              />
+                              <button type="button" onClick={() => deleteAsset(asset.pageNumber, asset.assetId)}
+                                disabled={!!deletingAssets[`${asset.pageNumber}-${asset.assetId}`]}
+                                style={{
+                                  position: "absolute", top: 6, right: 6,
+                                  background: "rgba(0,0,0,0.6)", color: "#fff", border: "none",
+                                  borderRadius: 4, width: 28, height: 28, cursor: "pointer",
+                                  display: "flex", alignItems: "center", justifyContent: "center"
+                                }}>
+                                <Trash />
+                              </button>
+                              {asset.category && (
+                                <span style={{
+                                  position: "absolute", bottom: 6, left: 6,
+                                  background: "rgba(0,0,0,0.6)", color: "#fff",
+                                  padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 500
+                                }}>
+                                  {asset.category}
+                                </span>
+                              )}
                             </div>
-                          )}
-                          <div style={{ fontSize: 11, color: "#a89e8c", marginTop: 6 }}>
-                            Page {asset.pageNumber} • {asset.assetId}
+                            <div style={{ padding: "10px 12px" }}>
+                              <div style={{ fontSize: 13, fontWeight: 600, color: "#1a1510", marginBottom: 2 }}>
+                                {asset.title || asset.assetId}
+                              </div>
+                              {asset.description && (
+                                <div style={{ fontSize: 12, color: "#6b6355", lineHeight: 1.4 }}>
+                                  {asset.description}
+                                </div>
+                              )}
+                              <div style={{ fontSize: 11, color: "#a89e8c", marginTop: 6 }}>
+                                Page {asset.pageNumber} • {asset.assetId}
+                                {asset.geo?.placeName && <> • 📍 {asset.geo.placeName}</>}
+                                {asset.dateInfo?.label && <> • 📅 {asset.dateInfo.label}</>}
+                              </div>
+                            </div>
                           </div>
-                        </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
+                    )}
+
+                    {/* MAP VIEW */}
+                    {viewMode === "map" && <MapView assets={allAssets} />}
+
+                    {/* TIMELINE VIEW */}
+                    {viewMode === "timeline" && <TimelineView assets={allAssets} />}
+                  </>
                 )}
               </div>
             )}

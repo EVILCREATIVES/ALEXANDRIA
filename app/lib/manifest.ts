@@ -41,6 +41,8 @@ export type PageAsset = {
   title?: string;       // Short descriptive title from detection
   description?: string; // Brief explanation of what element depicts
   category?: string;    // Asset category from detection (character, location, keyArt, logo, etc.)
+  geo?: { lat: number; lng: number; placeName?: string };
+  dateInfo?: { date?: string; era?: string; label?: string };
 };
 export type PageImage = {
   pageNumber: number;
