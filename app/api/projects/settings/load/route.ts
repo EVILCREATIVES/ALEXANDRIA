@@ -16,10 +16,8 @@ type SettingsFile = {
 type GlobalSettingsIndex = {
   aiRules?: SettingsFile;
   taggingJson?: SettingsFile;
-  schemaJson?: SettingsFile;
   completenessRules?: SettingsFile;
   detectionRulesJson?: SettingsFile;
-  styleRulesJson?: SettingsFile;
   taggerPromptJson?: SettingsFile;
   taggerEnforcerJson?: SettingsFile;
   historyUrl?: string;
@@ -35,10 +33,7 @@ type SettingsHistoryEntry = {
 type SettingsHistory = {
   aiRules?: SettingsHistoryEntry[];
   taggingJson?: SettingsHistoryEntry[];
-  schemaJson?: SettingsHistoryEntry[];
-  completenessRules?: SettingsHistoryEntry[];
   detectionRulesJson?: SettingsHistoryEntry[];
-  styleRulesJson?: SettingsHistoryEntry[];
   taggerPromptJson?: SettingsHistoryEntry[];
   taggerEnforcerJson?: SettingsHistoryEntry[];
 };
@@ -58,7 +53,7 @@ async function fetchJson<T>(url: string): Promise<T> {
 // Templates are now bundled at build time via TypeScript imports
 function loadTemplates(): Record<string, string> {
   const templates = getDefaultTemplates();
-  console.log(`[settings/load] Templates loaded - aiRules: ${templates.aiRules.length} chars, taggingJson: ${templates.taggingJson.length} chars, schemaJson: ${templates.schemaJson.length} chars`);
+  console.log(`[settings/load] Templates loaded - aiRules: ${templates.aiRules.length} chars, taggingJson: ${templates.taggingJson.length} chars`);
   return templates;
 }
 
@@ -117,17 +112,6 @@ export async function GET(): Promise<Response> {
       }
     }
 
-    if (index.schemaJson?.url) {
-      try {
-        const content = await fetchText(index.schemaJson.url);
-        if (isSubstantial(content)) {
-          settings.schemaJson = content;
-        }
-      } catch (e) {
-        console.error("Failed to load schemaJson:", e);
-      }
-    }
-
     if (index.completenessRules?.url) {
       try {
         const content = await fetchText(index.completenessRules.url);
@@ -147,17 +131,6 @@ export async function GET(): Promise<Response> {
         }
       } catch (e) {
         console.error("Failed to load detectionRulesJson:", e);
-      }
-    }
-
-    if (index.styleRulesJson?.url) {
-      try {
-        const content = await fetchText(index.styleRulesJson.url);
-        if (isSubstantial(content)) {
-          settings.styleRulesJson = content;
-        }
-      } catch (e) {
-        console.error("Failed to load styleRulesJson:", e);
       }
     }
 

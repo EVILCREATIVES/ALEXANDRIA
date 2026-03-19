@@ -10,10 +10,8 @@ type Body = {
   manifestUrl?: string;
   aiRules?: string;
   taggingJson?: string;
-  schemaJson?: string;
   completenessRules?: string;
   detectionRulesJson?: string;
-  styleRulesJson?: string;
   history?: SettingsHistory;
 };
 
@@ -26,10 +24,8 @@ type SettingsFile = {
 type SettingsFiles = {
   aiRules?: SettingsFile;
   taggingJson?: SettingsFile;
-  schemaJson?: SettingsFile;
   completenessRules?: SettingsFile;
   detectionRulesJson?: SettingsFile;
-  styleRulesJson?: SettingsFile;
 };
 
 // Global settings index path
@@ -39,10 +35,8 @@ const GLOBAL_HISTORY_PATH = "settings/history.json";
 type GlobalSettingsIndex = {
   aiRules?: SettingsFile;
   taggingJson?: SettingsFile;
-  schemaJson?: SettingsFile;
   completenessRules?: SettingsFile;
   detectionRulesJson?: SettingsFile;
-  styleRulesJson?: SettingsFile;
   historyUrl?: string;
   lastUpdated: string;
 };
@@ -83,14 +77,6 @@ export async function POST(req: Request): Promise<Response> {
     }
   }
 
-  if (typeof body.schemaJson === "string" && body.schemaJson.trim()) {
-    try {
-      JSON.parse(body.schemaJson);
-    } catch {
-      return NextResponse.json({ ok: false, error: "schemaJson is not valid JSON" }, { status: 400 });
-    }
-  }
-
   if (typeof body.completenessRules === "string" && body.completenessRules.trim()) {
     try {
       JSON.parse(body.completenessRules);
@@ -104,14 +90,6 @@ export async function POST(req: Request): Promise<Response> {
       JSON.parse(body.detectionRulesJson);
     } catch {
       return NextResponse.json({ ok: false, error: "detectionRulesJson is not valid JSON" }, { status: 400 });
-    }
-  }
-
-  if (typeof body.styleRulesJson === "string" && body.styleRulesJson.trim()) {
-    try {
-      JSON.parse(body.styleRulesJson);
-    } catch {
-      return NextResponse.json({ ok: false, error: "styleRulesJson is not valid JSON" }, { status: 400 });
     }
   }
 
@@ -135,7 +113,7 @@ export async function POST(req: Request): Promise<Response> {
 
   // Initialize settings structures
   if (!latest.settings) {
-    latest.settings = { aiRules: "", uiFieldsJson: "{}", taggingJson: "{}", schemaJson: "{}", completenessRules: "{}", detectionRulesJson: "{}" };
+    latest.settings = { aiRules: "", uiFieldsJson: "{}", taggingJson: "{}", completenessRules: "{}", detectionRulesJson: "{}" };
   }
   
   // Get existing settingsFiles for blob storage tracking
@@ -174,20 +152,6 @@ export async function POST(req: Request): Promise<Response> {
       }
     }
 
-    if (typeof body.schemaJson === "string") {
-      latest.settings.schemaJson = body.schemaJson;
-      if (body.schemaJson.trim()) {
-        const version = getNextVersion(settingsFiles.schemaJson);
-        const path = generateSettingsPath("schema", version, "json");
-        const blob = await put(path, body.schemaJson, {
-          access: "public",
-          contentType: "application/json",
-          addRandomSuffix: false
-        });
-        settingsFiles.schemaJson = { url: blob.url, version, savedAt };
-      }
-    }
-
     if (typeof body.completenessRules === "string") {
       latest.settings.completenessRules = body.completenessRules;
       if (body.completenessRules.trim()) {
@@ -213,20 +177,6 @@ export async function POST(req: Request): Promise<Response> {
           addRandomSuffix: false
         });
         settingsFiles.detectionRulesJson = { url: blob.url, version, savedAt };
-      }
-    }
-
-    if (typeof body.styleRulesJson === "string") {
-      latest.settings.styleRulesJson = body.styleRulesJson;
-      if (body.styleRulesJson.trim()) {
-        const version = getNextVersion(settingsFiles.styleRulesJson);
-        const path = generateSettingsPath("style-rules", version, "json");
-        const blob = await put(path, body.styleRulesJson, {
-          access: "public",
-          contentType: "application/json",
-          addRandomSuffix: false
-        });
-        settingsFiles.styleRulesJson = { url: blob.url, version, savedAt };
       }
     }
 
