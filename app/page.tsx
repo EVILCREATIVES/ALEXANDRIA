@@ -172,7 +172,7 @@ function MapView({ assets }: { assets: (PageAsset & { pageNumber: number })[] })
     const script = document.createElement("script");
     script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
     script.onload = () => {
-      const L = (window as Record<string, unknown>).L as {
+      const L = (window as unknown as Record<string, unknown>).L as {
         map: (el: HTMLElement) => {
           setView: (center: [number, number], zoom: number) => unknown;
           remove: () => void;
