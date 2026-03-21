@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
-const MODEL = "gemini-2.0-flash";
+const MODEL = "gemini-3.1-flash-lite-preview";
 
 const enrichSchema: Schema = {
   type: SchemaType.ARRAY,
@@ -46,27 +46,27 @@ const PROMPT = `You are an expert archivist analyzing images extracted from docu
 
 You will receive:
 1. The FULL PAGE image where each asset was extracted from — use visible text, captions, labels, headings, and surrounding context to inform your analysis
-2. Each individual cropped asset image
+2. EXTRACTED TEXT from the page — use this text for identifying dates, place names, and historical context (this is the most reliable source)
+3. Each individual cropped asset image
 
-Use ALL available context from the page (text, captions, dates, place names, headings, footnotes) to enrich each asset.
+**Use the extracted page text as your PRIMARY source for determining location and timeline.** The text contains captions, article dates, place names, and historical references that are often clearer than visual inference.
 
-**Geographic context** — Where in the world is this image set, depicts, or referenced by surrounding page text?
+**Geographic context** — Where in the world is this image set, depicts, or referenced? Priority sources:
+- Place names mentioned in the extracted page text (highest priority)
 - Depicted locations (cities, landmarks, landscapes, buildings)
-- Place names mentioned in page text near the image
-- Captions, labels, or headings referencing geography
+- Captions and labels referencing geography
 - Architectural or cultural indicators
 - Maps or diagrams showing locations
 Only provide coordinates if you can reasonably determine a location. Use city/region center if exact location is unclear.
 
-**Temporal context** — When does this image relate to? Use both visual and textual cues:
-- Dates in page text, captions, or image itself
+**Temporal context** — When does this image relate to? Priority sources:
+- Dates in the extracted page text (article dates, publication dates, historical references) (highest priority)
 - Depicted time periods (fashion, technology, architecture)
-- Historical events referenced in surrounding text
-- Publication dates, copyright notices
+- Historical events referenced in page text
 - Art style indicating era
-Provide a date/year if possible, always provide an era and display label.
+Always provide an era and display label. Provide a specific date/year if text indicates one.
 
-For fictional/fantasy content: Use real-world analogs for era (e.g. "Medieval-inspired") and leave geo as null unless a real location is referenced.
+For fictional/fantasy content: Use real-world analogs for era and leave geo as null unless a real location is referenced.
 For logos, diagrams, charts, or abstract images: Set both to null unless page context provides clear geographic or temporal information.
 
 Analyze these images:
@@ -100,6 +100,32 @@ export async function POST(req: NextRequest): Promise<Response> {
     manifest = await fetchManifestDirect(manifestUrl);
   } catch (e) {
     return NextResponse.json({ ok: false, error: `Failed to load manifest: ${e instanceof Error ? e.message : e}` }, { status: 400 });
+  }
+
+  // Fetch extracted text for page context
+  const pageTextMap = new Map<number, string>(); // pageNumber -> extracted text for that page
+  if (manifest.extractedText?.url) {
+    try {
+      const textRes = await fetch(manifest.extractedText.url);
+      if (textRes.ok) {
+        const fullText = await textRes.text();
+        // Parse text by page markers: "--- Page N ---" or "[Page N]"
+        const pageBlocks = fullText.split(/(?:---\s*Page\s+(\d+)\s*---|^\[Page\s+(\d+)\])/m);
+        for (let i = 0; i < pageBlocks.length; i++) {
+          const pageNumMatch = pageBlocks[i]?.match(/\d+/);
+          if (pageNumMatch) {
+            const pageNum = parseInt(pageNumMatch[0], 10);
+            const pageText = pageBlocks[i + 1]?.trim();
+            if (pageText) {
+              pageTextMap.set(pageNum, pageText);
+            }
+          }
+        }
+        console.log(`[enrich] Loaded extracted text for ${pageTextMap.size} pages`);
+      }
+    } catch (e) {
+      console.warn(`[enrich] Could not load extracted text:`, e instanceof Error ? e.message : e);
+    }
   }
 
   // Collect assets that haven't been enriched yet, grouped by page
@@ -180,6 +206,13 @@ export async function POST(req: NextRequest): Promise<Response> {
       for (const asset of batch) {
         contextText += `\n- assetId: "${asset.assetId}", title: "${asset.title || "untitled"}", category: "${asset.category || "unknown"}", description: "${asset.description || "none"}", page: ${asset.pageNumber}`;
       }
+
+      // Add extracted page text if available
+      const pageText = pageTextMap.get(pageNum);
+      if (pageText) {
+        contextText += `\n\n--- EXTRACTED TEXT FROM PAGE ${pageNum} (for location/time context) ---\n${pageText}`;
+      }
+
       imageParts.push({ text: contextText });
 
       // Add page image for context (once per batch)

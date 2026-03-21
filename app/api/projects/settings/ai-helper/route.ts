@@ -84,7 +84,7 @@ async function chatWithGemini(messages: Message[], systemPrompt: string): Promis
   if (!GEMINI_API_KEY) throw new Error("GEMINI_API_KEY not configured");
 
   const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-  const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+  const model = genAI.getGenerativeModel({ model: "gemini-3.1-flash-lite-preview" });
 
   // Build conversation history
   const history = messages.slice(0, -1).map((m) => ({

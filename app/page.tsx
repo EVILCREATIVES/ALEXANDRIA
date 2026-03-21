@@ -15,13 +15,6 @@ type PageAsset = {
   title?: string;
   description?: string;
   category?: string;
-  metadata?: Record<string, string>;
-  geo?: { lat: number; lng: number; placeName?: string };
-  dateInfo?: { date?: string; era?: string; label?: string };
-  tags?: string[];
-  negativeTags?: string[];
-  trigger?: string;
-  tagRationale?: string;
 };
 
 type SettingsHistoryEntry = {
@@ -33,6 +26,7 @@ type SettingsHistoryEntry = {
 type SettingsHistory = {
   aiRules?: SettingsHistoryEntry[];
   detectionRulesJson?: SettingsHistoryEntry[];
+  styleRulesJson?: SettingsHistoryEntry[];
 };
 
 type Manifest = {
@@ -43,6 +37,8 @@ type Manifest = {
   extractedText?: { url: string };
   formattedText?: { url: string };
   docAiJson?: { url: string };
+  schemaResults?: { url: string };
+  styleAnalysis?: { url: string };
   pages?: Array<{
     pageNumber: number;
     url: string;
@@ -55,6 +51,7 @@ type Manifest = {
     aiRules: string;
     uiFieldsJson: string;
     taggingJson: string;
+    schemaJson: string;
     completenessRules?: string;
     detectionRulesJson?: string;
     history?: SettingsHistory;
@@ -158,390 +155,13 @@ function XIcon() {
   );
 }
 
-/* ───────── Asset Detail Overlay ───────── */
-function AssetDetailOverlay({ asset, onClose }: { asset: PageAsset & { pageNumber: number }; onClose: () => void }) {
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("keydown", handler);
-    return () => window.removeEventListener("keydown", handler);
-  }, [onClose]);
-
-  const hasGeo = asset.geo && (asset.geo.lat || asset.geo.lng);
-  const hasDate = asset.dateInfo && (asset.dateInfo.label || asset.dateInfo.era || asset.dateInfo.date);
-  const hasMeta = asset.metadata && Object.keys(asset.metadata).length > 0;
-  const hasTags = asset.tags && asset.tags.length > 0;
-  const hasNegTags = asset.negativeTags && asset.negativeTags.length > 0;
-
-  return (
-    <div onClick={onClose} style={{
-      position: "fixed", inset: 0, zIndex: 9999,
-      background: "rgba(0,0,0,0.7)", backdropFilter: "blur(6px)",
-      display: "flex", alignItems: "center", justifyContent: "center",
-      padding: 20,
-    }}>
-      <div onClick={(e) => e.stopPropagation()} style={{
-        background: "#faf8f5", borderRadius: 16, maxWidth: 720, width: "100%",
-        maxHeight: "90vh", overflow: "auto",
-        boxShadow: "0 20px 60px rgba(0,0,0,0.4)",
-      }}>
-        {/* Image */}
-        <div style={{ position: "relative", background: "#e5e0d5", borderRadius: "16px 16px 0 0", overflow: "hidden" }}>
-          <img
-            src={asset.url}
-            alt={asset.title || asset.assetId}
-            style={{ width: "100%", maxHeight: 420, objectFit: "contain", display: "block" }}
-          />
-          <button type="button" onClick={onClose} style={{
-            position: "absolute", top: 12, right: 12,
-            background: "rgba(0,0,0,0.6)", color: "#fff", border: "none",
-            borderRadius: 8, width: 36, height: 36, cursor: "pointer",
-            display: "flex", alignItems: "center", justifyContent: "center", fontSize: 18,
-          }}>✕</button>
-          {asset.category && (
-            <span style={{
-              position: "absolute", bottom: 12, left: 12,
-              background: "rgba(0,0,0,0.7)", color: "#fff",
-              padding: "4px 12px", borderRadius: 6, fontSize: 12, fontWeight: 600,
-              textTransform: "capitalize",
-            }}>
-              {asset.category}
-            </span>
-          )}
-        </div>
-
-        {/* Content */}
-        <div style={{ padding: "20px 24px 24px" }}>
-          {/* Title & ID */}
-          <h2 style={{ fontSize: 20, fontWeight: 700, color: "#1a1510", margin: 0 }}>
-            {asset.title || asset.assetId}
-          </h2>
-          <div style={{ fontSize: 12, color: "#a89e8c", marginTop: 4 }}>
-            {asset.assetId} • Page {asset.pageNumber}
-          </div>
-
-          {/* Description */}
-          {asset.description && (
-            <p style={{ fontSize: 14, color: "#4a4237", lineHeight: 1.6, margin: "12px 0 0" }}>
-              {asset.description}
-            </p>
-          )}
-
-          {/* Info Grid */}
-          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12, marginTop: 20 }}>
-            {/* Geo */}
-            <div style={{ background: "#f0ede7", borderRadius: 10, padding: "12px 14px" }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: "#8a7e6b", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>📍 Location</div>
-              {hasGeo ? (
-                <>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: "#1a1510" }}>{asset.geo!.placeName || "Unknown"}</div>
-                  <div style={{ fontSize: 11, color: "#8a7e6b", marginTop: 2 }}>{asset.geo!.lat.toFixed(4)}, {asset.geo!.lng.toFixed(4)}</div>
-                </>
-              ) : (
-                <div style={{ fontSize: 13, color: "#b5a998", fontStyle: "italic" }}>Not determined</div>
-              )}
-            </div>
-
-            {/* Date */}
-            <div style={{ background: "#f0ede7", borderRadius: 10, padding: "12px 14px" }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: "#8a7e6b", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>📅 Time Period</div>
-              {hasDate ? (
-                <>
-                  <div style={{ fontSize: 14, fontWeight: 600, color: "#1a1510" }}>{asset.dateInfo!.label || asset.dateInfo!.era || ""}</div>
-                  {asset.dateInfo!.date && <div style={{ fontSize: 11, color: "#8a7e6b", marginTop: 2 }}>{asset.dateInfo!.date}</div>}
-                  {asset.dateInfo!.era && asset.dateInfo!.label && <div style={{ fontSize: 11, color: "#8a7e6b", marginTop: 2 }}>{asset.dateInfo!.era}</div>}
-                </>
-              ) : (
-                <div style={{ fontSize: 13, color: "#b5a998", fontStyle: "italic" }}>Not determined</div>
-              )}
-            </div>
-          </div>
-
-          {/* Bounding Box */}
-          <div style={{ background: "#f0ede7", borderRadius: 10, padding: "12px 14px", marginTop: 12 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: "#8a7e6b", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>📐 Bounding Box</div>
-            <div style={{ fontSize: 12, color: "#4a4237", fontFamily: "monospace" }}>
-              x: {asset.bbox.x} &nbsp; y: {asset.bbox.y} &nbsp; w: {asset.bbox.w} &nbsp; h: {asset.bbox.h}
-            </div>
-          </div>
-
-          {/* Metadata */}
-          {hasMeta && (
-            <div style={{ marginTop: 16 }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: "#8a7e6b", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>🔬 Content Metadata</div>
-              <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 8 }}>
-                {Object.entries(asset.metadata!).map(([k, v]) => (
-                  <div key={k} style={{ background: "#f0ede7", borderRadius: 8, padding: "8px 12px" }}>
-                    <div style={{ fontSize: 10, fontWeight: 600, color: "#8a7e6b", textTransform: "uppercase" }}>{k}</div>
-                    <div style={{ fontSize: 13, color: "#1a1510", marginTop: 2 }}>{v}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Tags */}
-          {hasTags && (
-            <div style={{ marginTop: 16 }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: "#8a7e6b", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>🏷️ Tags</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                {asset.tags!.map((tag) => (
-                  <span key={tag} style={{
-                    fontSize: 12, background: "#dcd5c8", color: "#3a3428",
-                    padding: "3px 10px", borderRadius: 12,
-                  }}>{tag}</span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Negative Tags */}
-          {hasNegTags && (
-            <div style={{ marginTop: 12 }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: "#8a7e6b", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>🚫 Negative Tags</div>
-              <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                {asset.negativeTags!.map((tag) => (
-                  <span key={tag} style={{
-                    fontSize: 12, background: "#f5e0e0", color: "#8a3a3a",
-                    padding: "3px 10px", borderRadius: 12,
-                  }}>{tag}</span>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {/* Tag Rationale */}
-          {asset.tagRationale && (
-            <div style={{ marginTop: 12 }}>
-              <div style={{ fontSize: 11, fontWeight: 600, color: "#8a7e6b", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>💬 Tag Rationale</div>
-              <div style={{ fontSize: 12, color: "#4a4237", lineHeight: 1.5, background: "#f0ede7", borderRadius: 8, padding: "10px 14px" }}>
-                {asset.tagRationale}
-              </div>
-            </div>
-          )}
-
-          {/* URLs */}
-          <div style={{ marginTop: 16, borderTop: "1px solid #e5e0d5", paddingTop: 12 }}>
-            <div style={{ fontSize: 11, fontWeight: 600, color: "#8a7e6b", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 6 }}>🔗 URLs</div>
-            <div style={{ fontSize: 11, color: "#8a7e6b", wordBreak: "break-all", lineHeight: 1.6 }}>
-              <div><strong>Full:</strong> <a href={asset.url} target="_blank" rel="noopener noreferrer" style={{ color: "#6b5d4d" }}>{asset.url}</a></div>
-              {asset.thumbnailUrl && (
-                <div style={{ marginTop: 4 }}><strong>Thumb:</strong> <a href={asset.thumbnailUrl} target="_blank" rel="noopener noreferrer" style={{ color: "#6b5d4d" }}>{asset.thumbnailUrl}</a></div>
-              )}
-            </div>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-/* ───────── Map View ───────── */
-function MapView({ assets, onSelect }: { assets: (PageAsset & { pageNumber: number })[]; onSelect?: (a: PageAsset & { pageNumber: number }) => void }) {
-  const mapRef = useRef<HTMLDivElement>(null);
-  const mapInstanceRef = useRef<unknown>(null);
-  const geoAssets = useMemo(() => assets.filter((a) => a.geo), [assets]);
-
-  useEffect(() => {
-    if (!mapRef.current || geoAssets.length === 0) return;
-    if (mapInstanceRef.current) return; // already initialized
-
-    // Load Leaflet dynamically
-    const link = document.createElement("link");
-    link.rel = "stylesheet";
-    link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
-    document.head.appendChild(link);
-
-    const script = document.createElement("script");
-    script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
-    script.onload = () => {
-      const L = (window as unknown as Record<string, unknown>).L as {
-        map: (el: HTMLElement) => {
-          setView: (center: [number, number], zoom: number) => unknown;
-          remove: () => void;
-        };
-        tileLayer: (url: string, opts: Record<string, unknown>) => { addTo: (map: unknown) => void };
-        marker: (latlng: [number, number]) => { addTo: (map: unknown) => { bindPopup: (html: string) => void } };
-        latLngBounds: (points: [number, number][]) => unknown;
-      };
-      if (!L || !mapRef.current) return;
-
-      const map = L.map(mapRef.current).setView([20, 0], 2);
-      mapInstanceRef.current = map;
-
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        attribution: '&copy; <a href="https://openstreetmap.org">OSM</a>',
-        maxZoom: 18,
-      }).addTo(map);
-
-      const points: [number, number][] = [];
-      for (const asset of geoAssets) {
-        if (!asset.geo) continue;
-        const pos: [number, number] = [asset.geo.lat, asset.geo.lng];
-        points.push(pos);
-        const thumb = asset.thumbnailUrl || asset.url;
-        const popup = `<div style="text-align:center;max-width:200px"><img src="${thumb}" style="width:100%;max-height:120px;object-fit:cover;border-radius:4px;margin-bottom:4px"/><div style="font-weight:600;font-size:12px">${asset.title || asset.assetId}</div><div style="font-size:11px;color:#666">${asset.geo.placeName || ""}</div>${asset.dateInfo?.label ? `<div style="font-size:11px;color:#888">📅 ${asset.dateInfo.label}</div>` : ""}<button data-asset-id="${asset.assetId}" class="map-detail-btn" style="margin-top:6px;padding:3px 10px;font-size:11px;background:#1a1510;color:#fff;border:none;border-radius:4px;cursor:pointer">View Details</button></div>`;
-        L.marker(pos).addTo(map).bindPopup(popup);
-      }
-
-      // Event delegation for popup "View Details" buttons
-      if (onSelect) {
-        mapRef.current.addEventListener("click", (e) => {
-          const btn = (e.target as HTMLElement).closest(".map-detail-btn") as HTMLElement | null;
-          if (!btn) return;
-          const aid = btn.dataset.assetId;
-          const found = geoAssets.find((a) => a.assetId === aid);
-          if (found) onSelect(found);
-        });
-      }
-
-      if (points.length > 1) {
-        (map as unknown as { fitBounds: (b: unknown, o: Record<string, unknown>) => void }).fitBounds(L.latLngBounds(points), { padding: [40, 40] });
-      } else if (points.length === 1) {
-        (map as unknown as { setView: (c: [number, number], z: number) => void }).setView(points[0], 6);
-      }
-    };
-    document.head.appendChild(script);
-
-    return () => {
-      if (mapInstanceRef.current) {
-        (mapInstanceRef.current as { remove: () => void }).remove();
-        mapInstanceRef.current = null;
-      }
-    };
-  }, [geoAssets]);
-
-  if (geoAssets.length === 0) {
-    return (
-      <div style={{ padding: "40px 20px", textAlign: "center", color: "#8a7e6b" }}>
-        <div style={{ fontSize: 40, marginBottom: 12 }}>🗺️</div>
-        <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>No geographic data yet</div>
-        <div style={{ fontSize: 13 }}>Click &quot;Enrich Geo/Timeline&quot; to analyze assets for location and time context.</div>
-      </div>
-    );
-  }
-
-  return (
-    <div>
-      <div style={{ fontSize: 12, color: "#8a7e6b", marginBottom: 8 }}>
-        {geoAssets.length} of {assets.length} assets have geographic data
-      </div>
-      <div ref={mapRef} style={{ width: "100%", height: 500, borderRadius: 8, border: "1px solid #e5e0d5" }} />
-    </div>
-  );
-}
-
-/* ───────── Timeline View ───────── */
-function TimelineView({ assets, onSelect }: { assets: (PageAsset & { pageNumber: number })[]; onSelect?: (a: PageAsset & { pageNumber: number }) => void }) {
-  const timeAssets = useMemo(() => {
-    const withDate = assets.filter((a) => a.dateInfo);
-    // Sort by date string (ISO-ish), then by era
-    return withDate.sort((a, b) => {
-      const da = a.dateInfo?.date || a.dateInfo?.era || "";
-      const db = b.dateInfo?.date || b.dateInfo?.era || "";
-      return da.localeCompare(db);
-    });
-  }, [assets]);
-
-  if (timeAssets.length === 0) {
-    return (
-      <div style={{ padding: "40px 20px", textAlign: "center", color: "#8a7e6b" }}>
-        <div style={{ fontSize: 40, marginBottom: 12 }}>📅</div>
-        <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>No timeline data yet</div>
-        <div style={{ fontSize: 13 }}>Click &quot;Enrich Geo/Timeline&quot; to analyze assets for location and time context.</div>
-      </div>
-    );
-  }
-
-  // Group by era for visual separation
-  const groups: { era: string; items: typeof timeAssets }[] = [];
-  let currentEra = "";
-  for (const asset of timeAssets) {
-    const era = asset.dateInfo?.era || "Unknown Era";
-    if (era !== currentEra) {
-      currentEra = era;
-      groups.push({ era, items: [] });
-    }
-    groups[groups.length - 1].items.push(asset);
-  }
-
-  return (
-    <div>
-      <div style={{ fontSize: 12, color: "#8a7e6b", marginBottom: 16 }}>
-        {timeAssets.length} of {assets.length} assets have temporal data
-      </div>
-      <div style={{ position: "relative", paddingLeft: 32 }}>
-        {/* Vertical line */}
-        <div style={{ position: "absolute", left: 11, top: 0, bottom: 0, width: 2, background: "#e5e0d5" }} />
-
-        {groups.map((group) => (
-          <div key={group.era} style={{ marginBottom: 24 }}>
-            {/* Era label */}
-            <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 12, marginLeft: -32 }}>
-              <div style={{
-                width: 24, height: 24, borderRadius: "50%", background: "#1a1510",
-                display: "flex", alignItems: "center", justifyContent: "center",
-                color: "#d4c5a9", fontSize: 10, fontWeight: 700, flexShrink: 0
-              }}>
-                ●
-              </div>
-              <div style={{ fontSize: 14, fontWeight: 700, color: "#1a1510", letterSpacing: 0.5 }}>
-                {group.era}
-              </div>
-            </div>
-
-            {/* Assets in this era */}
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(220px, 1fr))", gap: 12 }}>
-              {group.items.map((asset) => (
-                <div key={asset.assetId} onClick={() => onSelect?.(asset)} style={{
-                  display: "flex", gap: 10, padding: 10, background: "#f8f6f3",
-                  borderRadius: 8, border: "1px solid #e5e0d5", position: "relative",
-                  cursor: onSelect ? "pointer" : undefined,
-                }}>
-                  {/* Timeline dot connector */}
-                  <div style={{
-                    position: "absolute", left: -26, top: 16,
-                    width: 10, height: 10, borderRadius: "50%",
-                    background: "#d4c5a9", border: "2px solid #e5e0d5"
-                  }} />
-                  <img
-                    src={asset.thumbnailUrl || asset.url}
-                    alt={asset.title || asset.assetId}
-                    style={{ width: 60, height: 60, objectFit: "cover", borderRadius: 6, flexShrink: 0 }}
-                    loading="lazy"
-                  />
-                  <div style={{ minWidth: 0, flex: 1 }}>
-                    <div style={{ fontSize: 12, fontWeight: 600, color: "#1a1510", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>
-                      {asset.title || asset.assetId}
-                    </div>
-                    <div style={{ fontSize: 11, color: "#065f46", fontWeight: 500, marginTop: 2 }}>
-                      {asset.dateInfo?.label || asset.dateInfo?.date || ""}
-                    </div>
-                    {asset.geo?.placeName && (
-                      <div style={{ fontSize: 11, color: "#8a7e6b", marginTop: 1 }}>
-                        📍 {asset.geo.placeName}
-                      </div>
-                    )}
-                    <div style={{ fontSize: 10, color: "#a89e8c", marginTop: 2 }}>
-                      Page {asset.pageNumber}
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 /* ───────── Settings Tabs ───────── */
 function SettingsTabs({
   value,
   onChange
 }: {
-  value: "ai" | "detection" | "debugLog" | "cloudState";
-  onChange: (v: "ai" | "detection" | "debugLog" | "cloudState") => void;
+  value: "ai" | "detection" | "styleRules" | "debugLog" | "cloudState";
+  onChange: (v: "ai" | "detection" | "styleRules" | "debugLog" | "cloudState") => void;
 }) {
   const tabStyle = (active: boolean): React.CSSProperties => ({
     border: "1px solid #000",
@@ -557,6 +177,7 @@ function SettingsTabs({
     <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", minWidth: 0, flex: 1, overflow: "hidden" }}>
       <button type="button" onClick={() => onChange("ai")} style={tabStyle(value === "ai")}>AI Rules</button>
       <button type="button" onClick={() => onChange("detection")} style={tabStyle(value === "detection")}>Detection</button>
+      <button type="button" onClick={() => onChange("styleRules")} style={tabStyle(value === "styleRules")}>Style Rules</button>
       <div style={{ width: 1, height: 20, background: "#ccc" }} />
       <button type="button" onClick={() => onChange("debugLog")} style={tabStyle(value === "debugLog")}>Debug Log</button>
       <button type="button" onClick={() => onChange("cloudState")} style={tabStyle(value === "cloudState")}>Cloud State</button>
@@ -588,13 +209,14 @@ export default function Page() {
   const [startupProjectId, setStartupProjectId] = useState("");
 
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<"ai" | "detection" | "debugLog" | "cloudState">("ai");
+  const [settingsTab, setSettingsTab] = useState<"ai" | "detection" | "styleRules" | "debugLog" | "cloudState">("ai");
   const [settingsBusy, setSettingsBusy] = useState(false);
   const [settingsError, setSettingsError] = useState("");
 
   /* ── Settings drafts ── */
   const [aiRulesDraft, setAiRulesDraft] = useState("");
   const [detectionRulesJsonDraft, setDetectionRulesJsonDraft] = useState("");
+  const [styleRulesJsonDraft, setStyleRulesJsonDraft] = useState("");
   const [settingsHistory, setSettingsHistory] = useState<SettingsHistory>({});
 
   /* ── Pipeline ── */
@@ -619,9 +241,8 @@ export default function Page() {
   const [pagesPreviewOpen, setPagesPreviewOpen] = useState(false);
   const [deletingAssets, setDeletingAssets] = useState<Record<string, boolean>>({});
   const [thumbnailsBusy, setThumbnailsBusy] = useState(false);
-  const [enrichBusy, setEnrichBusy] = useState(false);
-  const [viewMode, setViewMode] = useState<"grid" | "map" | "timeline">("grid");
-  const [selectedAsset, setSelectedAsset] = useState<(PageAsset & { pageNumber: number }) | null>(null);
+  const [styleBusy, setStyleBusy] = useState(false);
+  const [schemaBusy, setSchemaBusy] = useState(false);
 
   /* ── Debug ── */
   const [debugLogOpen, setDebugLogOpen] = useState(false);
@@ -642,6 +263,7 @@ export default function Page() {
     switch (tab) {
       case "ai": return aiRulesDraft;
       case "detection": return detectionRulesJsonDraft;
+      case "styleRules": return styleRulesJsonDraft;
       default: return "";
     }
   }
@@ -650,6 +272,7 @@ export default function Page() {
     switch (tab) {
       case "ai": return "aiRules";
       case "detection": return "detectionRulesJson";
+      case "styleRules": return "styleRulesJson";
       default: return "aiRules";
     }
   }
@@ -675,6 +298,7 @@ export default function Page() {
         body: JSON.stringify({
           aiRules: aiRulesDraft,
           detectionRulesJson: detectionRulesJsonDraft,
+          styleRulesJson: styleRulesJsonDraft,
           history: historyToSave
         })
       });
@@ -693,6 +317,7 @@ export default function Page() {
     switch (settingsTab) {
       case "ai": setAiRulesDraft(entry.content); break;
       case "detection": setDetectionRulesJsonDraft(entry.content); break;
+      case "styleRules": setStyleRulesJsonDraft(entry.content); break;
     }
   }
 
@@ -750,12 +375,14 @@ export default function Page() {
         settings?: {
           aiRules: string;
           detectionRulesJson: string;
+          styleRulesJson: string;
         };
         history?: SettingsHistory;
       };
       if (data.ok && data.settings) {
         setAiRulesDraft(data.settings.aiRules || "");
         setDetectionRulesJsonDraft(data.settings.detectionRulesJson || "{}");
+        setStyleRulesJsonDraft(data.settings.styleRulesJson || "{}");
       }
       if (data.ok && data.history) {
         setSettingsHistory(data.history);
@@ -794,36 +421,73 @@ export default function Page() {
     }
   }
 
-  async function enrichAssets() {
+  async function analyzeStyle() {
     if (!projectId || !manifestUrl) return;
-    setEnrichBusy(true);
+    setStyleBusy(true);
     setLastError("");
-    log("Starting geo/timeline enrichment...");
+    log("Starting style analysis...");
     try {
-      const res = await fetch("/api/projects/assets/enrich", {
+      const res = await fetch("/api/projects/style/analyze", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ projectId, manifestUrl })
       });
       if (!res.ok) throw new Error(await readErrorText(res));
-      const data = (await res.json()) as { ok: boolean; enriched?: number; total?: number; manifestUrl?: string; error?: string; errors?: string[] };
-      if (!data.ok) throw new Error(data.error || "Enrichment failed");
-      log(`Enrichment complete: ${data.enriched ?? 0}/${data.total ?? 0} assets enriched`);
-      if (data.errors && data.errors.length > 0) {
-        for (const err of data.errors) log(`  ⚠️ ${err}`);
-      }
-      if (data.manifestUrl) {
-        setManifestUrl(data.manifestUrl);
-        manifestUrlRef.current = data.manifestUrl;
-        setUrlParams(projectId, data.manifestUrl);
-        await loadManifest(data.manifestUrl);
-      }
+      const data = (await res.json()) as { ok: boolean; manifestUrl?: string; analyzedImages?: number; error?: string };
+      if (!data.ok) throw new Error(data.error || "Style analysis failed");
+
+      const nextManifestUrl = data.manifestUrl || manifestUrl;
+      setManifestUrl(nextManifestUrl);
+      manifestUrlRef.current = nextManifestUrl;
+      setUrlParams(projectId, nextManifestUrl);
+      await loadManifest(nextManifestUrl);
+
+      log(`Style analysis complete. Images analyzed: ${data.analyzedImages ?? 0}`);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setLastError(msg);
-      log(`Enrichment error: ${msg}`);
+      log(`Style analysis error: ${msg}`);
     } finally {
-      setEnrichBusy(false);
+      setStyleBusy(false);
+    }
+  }
+
+  async function generateSchemaResults() {
+    if (!projectId || !manifestUrl) return;
+    setSchemaBusy(true);
+    setLastError("");
+    log("Starting schema generation...");
+    try {
+      const fillRes = await fetch("/api/projects/schema/fill", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId, manifestUrl })
+      });
+      if (!fillRes.ok) throw new Error(await readErrorText(fillRes));
+      const fillData = (await fillRes.json()) as { ok: boolean; results?: string; error?: string };
+      if (!fillData.ok || !fillData.results) throw new Error(fillData.error || "Schema fill failed");
+
+      const saveRes = await fetch("/api/projects/schema/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId, manifestUrl, results: fillData.results })
+      });
+      if (!saveRes.ok) throw new Error(await readErrorText(saveRes));
+      const saveData = (await saveRes.json()) as { ok: boolean; manifestUrl?: string; schemaResultsUrl?: string; error?: string };
+      if (!saveData.ok || !saveData.manifestUrl) throw new Error(saveData.error || "Schema save failed");
+
+      setManifestUrl(saveData.manifestUrl);
+      manifestUrlRef.current = saveData.manifestUrl;
+      setUrlParams(projectId, saveData.manifestUrl);
+      await loadManifest(saveData.manifestUrl);
+
+      log(`Schema generated and saved${saveData.schemaResultsUrl ? `: ${saveData.schemaResultsUrl}` : ""}`);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setLastError(msg);
+      log(`Schema generation error: ${msg}`);
+    } finally {
+      setSchemaBusy(false);
     }
   }
 
@@ -1024,7 +688,7 @@ export default function Page() {
     log("Starting image detection with Gemini...");
 
     try {
-      const allResults: Map<number, Array<{ x: number; y: number; width: number; height: number; category?: string; title?: string; description?: string; metadata?: Record<string, string> }>> = new Map();
+      const allResults: Map<number, Array<{ x: number; y: number; width: number; height: number; category?: string; title?: string; description?: string }>> = new Map();
 
       // Detect images on pages in parallel batches of 3
       log("=== Detecting images on all pages (parallel) ===");
@@ -1047,7 +711,7 @@ export default function Page() {
           });
           if (!detectRes.ok) { log(`Detection failed page ${page.pageNumber}: ${await readErrorText(detectRes)}`); return; }
 
-          const detected = (await detectRes.json()) as { boxes?: Array<{ x: number; y: number; width: number; height: number; category?: string; title?: string; description?: string; metadata?: Record<string, string> }>; error?: string };
+          const detected = (await detectRes.json()) as { boxes?: Array<{ x: number; y: number; width: number; height: number; category?: string; title?: string; description?: string }>; error?: string };
           const boxes = detected.boxes ?? [];
           log(`Page ${page.pageNumber}: ${boxes.length} images found`);
           if (boxes.length > 0) allResults.set(page.pageNumber, boxes);
@@ -1070,7 +734,7 @@ export default function Page() {
         });
 
         // Crop all assets from this page first
-        const croppedAssets: Array<{ assetId: string; pngBlob: Blob; bbox: AssetBBox; title?: string; description?: string; category?: string; metadata?: Record<string, string> }> = [];
+        const croppedAssets: Array<{ assetId: string; pngBlob: Blob; bbox: AssetBBox; title?: string; description?: string; category?: string }> = [];
         for (let i = 0; i < boxes.length; i++) {
           const b = boxes[i];
           const bbox: AssetBBox = { x: b.x, y: b.y, w: b.width, h: b.height };
@@ -1085,7 +749,7 @@ export default function Page() {
             canvas.toBlob((bb) => (bb ? resolve(bb) : reject(new Error("toBlob returned null"))), "image/png");
           });
           const assetId = `p${page.pageNumber}-img${String(i + 1).padStart(2, "0")}`;
-          croppedAssets.push({ assetId, pngBlob, bbox, title: b.title, description: b.description, category: b.category, metadata: b.metadata });
+          croppedAssets.push({ assetId, pngBlob, bbox, title: b.title, description: b.description, category: b.category });
         }
 
         // Upload all assets from this page in parallel (batches of 4)
@@ -1099,7 +763,7 @@ export default function Page() {
               handleUploadUrl: "/api/blob"
             });
 
-            const metadata = { assetId: asset.assetId, pageNumber: page.pageNumber, url: uploaded.url, bbox: asset.bbox, title: asset.title, description: asset.description, category: asset.category, metadata: asset.metadata };
+            const metadata = { assetId: asset.assetId, pageNumber: page.pageNumber, url: uploaded.url, bbox: asset.bbox, title: asset.title, description: asset.description, category: asset.category };
             await upload(`projects/${projectId}/assets/p${page.pageNumber}/${asset.assetId}.meta.txt`,
               new File([JSON.stringify(metadata)], `${asset.assetId}.meta.txt`, { type: "text/plain" }), {
               access: "public",
@@ -1387,6 +1051,8 @@ export default function Page() {
 
   const totalAssets = allAssets.length;
   const totalPages = manifest?.pages?.length || 0;
+  const styleAnalysisUrl = manifest?.styleAnalysis?.url || "";
+  const schemaResultsUrl = manifest?.schemaResults?.url || "";
   const formattedTextUrl = manifest?.formattedText?.url || "";
   const extractedTextUrl = manifest?.extractedText?.url || "";
 
@@ -1584,6 +1250,14 @@ export default function Page() {
               style={{ padding: "8px 16px", fontSize: 13, background: "#065f46", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", fontWeight: 500 }}>
               ▶ Run Full Pipeline
             </button>
+            <button type="button" onClick={() => analyzeStyle()} disabled={!!busy || styleBusy}
+              style={{ padding: "8px 16px", fontSize: 13, background: "#fff", color: "#1a1510", border: "1px solid #ccc", borderRadius: 6, cursor: "pointer" }}>
+              {styleBusy ? "Analyzing Style..." : "Analyze Style"}
+            </button>
+            <button type="button" onClick={() => generateSchemaResults()} disabled={!!busy || schemaBusy}
+              style={{ padding: "8px 16px", fontSize: 13, background: "#fff", color: "#1a1510", border: "1px solid #ccc", borderRadius: 6, cursor: "pointer" }}>
+              {schemaBusy ? "Generating Schema..." : "Generate Schema"}
+            </button>
             <div style={{ flex: 1 }} />
             <button type="button" onClick={() => generateThumbnails()} disabled={!!busy || thumbnailsBusy}
               style={{ padding: "8px 16px", fontSize: 13, background: "#fff", color: "#1a1510", border: "1px solid #ccc", borderRadius: 6, cursor: "pointer" }}>
@@ -1623,16 +1297,25 @@ export default function Page() {
           </div>
         )}
 
-        {projectId && (formattedTextUrl || extractedTextUrl) && (
+        {projectId && (
           <div style={{ marginBottom: 20, background: "#fff", borderRadius: 12, border: "1px solid #e5e0d5", padding: "14px 20px" }}>
             <div style={{ fontSize: 14, fontWeight: 600, color: "#1a1510", marginBottom: 8 }}>Generated Outputs</div>
             <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 8, fontSize: 13 }}>
+              <a href={styleAnalysisUrl || "#"} target="_blank" rel="noreferrer" style={{ color: styleAnalysisUrl ? "#065f46" : "#8a7e6b", pointerEvents: styleAnalysisUrl ? "auto" : "none" }}>
+                {styleAnalysisUrl ? "Open Style Analysis JSON" : "Style Analysis not generated"}
+              </a>
+              <a href={schemaResultsUrl || "#"} target="_blank" rel="noreferrer" style={{ color: schemaResultsUrl ? "#065f46" : "#8a7e6b", pointerEvents: schemaResultsUrl ? "auto" : "none" }}>
+                {schemaResultsUrl ? "Open Schema Results JSON" : "Schema Results not generated"}
+              </a>
               <a href={formattedTextUrl || "#"} target="_blank" rel="noreferrer" style={{ color: formattedTextUrl ? "#065f46" : "#8a7e6b", pointerEvents: formattedTextUrl ? "auto" : "none" }}>
                 {formattedTextUrl ? "Open Formatted Text" : "Formatted Text not generated"}
               </a>
               <a href={extractedTextUrl || "#"} target="_blank" rel="noreferrer" style={{ color: extractedTextUrl ? "#065f46" : "#8a7e6b", pointerEvents: extractedTextUrl ? "auto" : "none" }}>
                 {extractedTextUrl ? "Open Extracted Text" : "Extracted Text not generated"}
               </a>
+            </div>
+            <div style={{ marginTop: 8, fontSize: 12, color: "#8a7e6b" }}>
+              Map and timeline visual views are not built yet, but schema/style outputs are now directly accessible here.
             </div>
           </div>
         )}
@@ -1681,112 +1364,67 @@ export default function Page() {
                 {totalAssets === 0 ? (
                   <p style={{ color: "#8a7e6b", fontSize: 14 }}>No images extracted yet. Upload a source and run the pipeline.</p>
                 ) : (
-                  <>
-                    {/* View mode tabs + enrich button */}
-                    <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 16 }}>
-                      {(["grid", "map", "timeline"] as const).map((mode) => (
-                        <button key={mode} type="button" onClick={() => setViewMode(mode)}
-                          style={{
-                            padding: "6px 14px", fontSize: 12, fontWeight: viewMode === mode ? 600 : 400,
-                            background: viewMode === mode ? "#1a1510" : "#fff",
-                            color: viewMode === mode ? "#d4c5a9" : "#1a1510",
-                            border: "1px solid #1a1510", borderRadius: 6, cursor: "pointer",
-                            textTransform: "capitalize"
-                          }}>
-                          {mode === "grid" ? "🖼️ Grid" : mode === "map" ? "🗺️ Map" : "📅 Timeline"}
-                        </button>
-                      ))}
-                      <div style={{ flex: 1 }} />
-                      <button type="button" onClick={() => enrichAssets()} disabled={!!busy || enrichBusy}
-                        style={{ padding: "6px 14px", fontSize: 12, background: "#065f46", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", fontWeight: 500 }}>
-                        {enrichBusy ? "Enriching..." : "🔍 Enrich Geo/Timeline"}
-                      </button>
-                    </div>
-
-                    {/* GRID VIEW */}
-                    {viewMode === "grid" && (
-                      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 16 }}>
-                        {allAssets.map((asset) => (
-                          <div key={asset.assetId} onClick={() => setSelectedAsset(asset)} style={{
-                            background: "#f8f6f3", borderRadius: 10, border: "1px solid #e5e0d5",
-                            overflow: "hidden", position: "relative", cursor: "pointer",
-                            transition: "box-shadow 0.15s",
-                          }}
-                          onMouseEnter={(e) => { e.currentTarget.style.boxShadow = "0 4px 16px rgba(0,0,0,0.12)"; }}
-                          onMouseLeave={(e) => { e.currentTarget.style.boxShadow = "none"; }}
-                          >
-                            <div style={{ position: "relative", background: "#e5e0d5" }}>
-                              <img
-                                src={asset.thumbnailUrl || asset.url}
-                                alt={asset.title || asset.assetId}
-                                style={{ width: "100%", height: 180, objectFit: "cover", display: "block" }}
-                                loading="lazy"
-                                onError={(e) => {
-                                  if (!asset.thumbnailUrl) return;
-                                  const img = e.currentTarget;
-                                  if (img.dataset.fallbackApplied === "1") return;
-                                  img.dataset.fallbackApplied = "1";
-                                  img.src = asset.url;
-                                }}
-                              />
-                              <button type="button" onClick={(e) => { e.stopPropagation(); deleteAsset(asset.pageNumber, asset.assetId); }}
-                                disabled={!!deletingAssets[`${asset.pageNumber}-${asset.assetId}`]}
-                                style={{
-                                  position: "absolute", top: 6, right: 6,
-                                  background: "rgba(0,0,0,0.6)", color: "#fff", border: "none",
-                                  borderRadius: 4, width: 28, height: 28, cursor: "pointer",
-                                  display: "flex", alignItems: "center", justifyContent: "center"
-                                }}>
-                                <Trash />
-                              </button>
-                              {asset.category && (
-                                <span style={{
-                                  position: "absolute", bottom: 6, left: 6,
-                                  background: "rgba(0,0,0,0.6)", color: "#fff",
-                                  padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 500
-                                }}>
-                                  {asset.category}
-                                </span>
-                              )}
-                            </div>
-                            <div style={{ padding: "10px 12px" }}>
-                              <div style={{ fontSize: 13, fontWeight: 600, color: "#1a1510", marginBottom: 2 }}>
-                                {asset.title || asset.assetId}
-                              </div>
-                              {asset.description && (
-                                <div style={{ fontSize: 12, color: "#6b6355", lineHeight: 1.4 }}>
-                                  {asset.description}
-                                </div>
-                              )}
-                              {asset.metadata && Object.keys(asset.metadata).length > 0 && (
-                                <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
-                                  {Object.entries(asset.metadata).map(([k, v]) => (
-                                    <span key={k} style={{
-                                      fontSize: 10, background: "#e8e3d9", color: "#5a5245",
-                                      padding: "1px 6px", borderRadius: 3
-                                    }}>
-                                      {k}: {v}
-                                    </span>
-                                  ))}
-                                </div>
-                              )}
-                              <div style={{ fontSize: 11, color: "#a89e8c", marginTop: 6 }}>
-                                Page {asset.pageNumber} • {asset.assetId}
-                                {asset.geo?.placeName && <> • 📍 {asset.geo.placeName}</>}
-                                {asset.dateInfo?.label && <> • 📅 {asset.dateInfo.label}</>}
-                              </div>
-                            </div>
+                  <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 16 }}>
+                    {allAssets.map((asset) => (
+                      <div key={asset.assetId} style={{
+                        background: "#f8f6f3", borderRadius: 10, border: "1px solid #e5e0d5",
+                        overflow: "hidden", position: "relative"
+                      }}>
+                        {/* Image */}
+                        <div style={{ position: "relative", background: "#e5e0d5" }}>
+                          <img
+                            src={asset.thumbnailUrl || asset.url}
+                            alt={asset.title || asset.assetId}
+                            style={{ width: "100%", height: 180, objectFit: "cover", display: "block" }}
+                            loading="lazy"
+                            onError={(e) => {
+                              // If thumbnail is stale/missing, fall back to the original image once.
+                              if (!asset.thumbnailUrl) return;
+                              const img = e.currentTarget;
+                              if (img.dataset.fallbackApplied === "1") return;
+                              img.dataset.fallbackApplied = "1";
+                              img.src = asset.url;
+                            }}
+                          />
+                          {/* Delete button */}
+                          <button type="button" onClick={() => deleteAsset(asset.pageNumber, asset.assetId)}
+                            disabled={!!deletingAssets[`${asset.pageNumber}-${asset.assetId}`]}
+                            style={{
+                              position: "absolute", top: 6, right: 6,
+                              background: "rgba(0,0,0,0.6)", color: "#fff", border: "none",
+                              borderRadius: 4, width: 28, height: 28, cursor: "pointer",
+                              display: "flex", alignItems: "center", justifyContent: "center"
+                            }}>
+                            <Trash />
+                          </button>
+                          {/* Category badge */}
+                          {asset.category && (
+                            <span style={{
+                              position: "absolute", bottom: 6, left: 6,
+                              background: "rgba(0,0,0,0.6)", color: "#fff",
+                              padding: "2px 8px", borderRadius: 4, fontSize: 11, fontWeight: 500
+                            }}>
+                              {asset.category}
+                            </span>
+                          )}
+                        </div>
+                        {/* Info */}
+                        <div style={{ padding: "10px 12px" }}>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: "#1a1510", marginBottom: 2 }}>
+                            {asset.title || asset.assetId}
                           </div>
-                        ))}
+                          {asset.description && (
+                            <div style={{ fontSize: 12, color: "#6b6355", lineHeight: 1.4 }}>
+                              {asset.description}
+                            </div>
+                          )}
+                          <div style={{ fontSize: 11, color: "#a89e8c", marginTop: 6 }}>
+                            Page {asset.pageNumber} • {asset.assetId}
+                          </div>
+                        </div>
                       </div>
-                    )}
-
-                    {/* MAP VIEW */}
-                    {viewMode === "map" && <MapView assets={allAssets} onSelect={setSelectedAsset} />}
-
-                    {/* TIMELINE VIEW */}
-                    {viewMode === "timeline" && <TimelineView assets={allAssets} onSelect={setSelectedAsset} />}
-                  </>
+                    ))}
+                  </div>
                 )}
               </div>
             )}
@@ -1919,6 +1557,17 @@ export default function Page() {
                 </div>
               )}
 
+              {settingsTab === "styleRules" && (
+                <div>
+                  <label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 8 }}>Style Rules JSON</label>
+                  <textarea
+                    value={styleRulesJsonDraft}
+                    onChange={(e) => setStyleRulesJsonDraft(e.target.value)}
+                    style={{ width: "100%", minHeight: 300, fontFamily: "monospace", fontSize: 13, padding: 12, border: "1px solid #e5e0d5", borderRadius: 8, resize: "vertical" }}
+                  />
+                </div>
+              )}
+
               {settingsTab === "debugLog" && (
                 <div>
                   <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 8 }}>
@@ -1948,7 +1597,7 @@ export default function Page() {
               )}
 
               {/* History panel */}
-              {["ai", "detection"].includes(settingsTab) && (
+              {["ai", "detection", "styleRules"].includes(settingsTab) && (
                 <div style={{ marginTop: 24 }}>
                   <button type="button" onClick={() => {}}
                     style={{ fontSize: 12, color: "#8a7e6b", background: "none", border: "none", cursor: "pointer", marginBottom: 8 }}>
@@ -1992,9 +1641,6 @@ export default function Page() {
           </div>
         </div>
       )}
-
-      {/* ═══════ ASSET DETAIL OVERLAY ═══════ */}
-      {selectedAsset && <AssetDetailOverlay asset={selectedAsset} onClose={() => setSelectedAsset(null)} />}
 
       {/* ═══════ HIDDEN FILE INPUT ═══════ */}
       <input ref={fileRef} type="file" accept=".pdf" style={{ display: "none" }}

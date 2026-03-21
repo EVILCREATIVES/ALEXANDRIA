@@ -14,7 +14,7 @@ type Body = {
 };
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
-const GEMINI_DETECT_MODEL = process.env.GEMINI_DETECT_MODEL || "gemini-2.0-flash";
+const GEMINI_DETECT_MODEL = process.env.GEMINI_DETECT_MODEL || "gemini-3.1-flash-lite-preview";
 
 /** Max pages per Gemini call — keeps output well within token limits */
 const PAGES_PER_CHUNK = 20;
