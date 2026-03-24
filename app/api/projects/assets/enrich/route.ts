@@ -19,7 +19,7 @@ const enrichSchema: Schema = {
       assetId: { type: SchemaType.STRING, description: "The assetId being enriched" },
       geo: {
         type: SchemaType.OBJECT,
-        description: "Geographic location. null if cannot be determined from the text.",
+        description: "Geographic location. null if cannot be determined.",
         nullable: true,
         properties: {
           lat: { type: SchemaType.NUMBER, description: "Latitude" },
@@ -30,7 +30,7 @@ const enrichSchema: Schema = {
       },
       dateInfo: {
         type: SchemaType.OBJECT,
-        description: "Temporal context. null if cannot be determined from the text.",
+        description: "Temporal context. null if cannot be determined.",
         nullable: true,
         properties: {
           date: { type: SchemaType.STRING, description: "ISO date or year string (e.g. '1453', '1920-06', '2024-03-15')" },
@@ -44,24 +44,24 @@ const enrichSchema: Schema = {
   },
 };
 
-const SYSTEM_PROMPT = `You are an expert archivist. You will receive TEXT ONLY — extracted page text from a document and metadata about images found on each page (title, description, category, etc.).
+const SYSTEM_PROMPT = `You are an expert archivist analyzing images extracted from document pages.
+For each image, determine its **geographic location** and **temporal context**.
 
-Your job: determine **geographic** and **temporal** context for each asset using ONLY the text information provided. Do NOT hallucinate — only provide geo/date when the text clearly supports it.
+You receive each asset's image alongside its text metadata and the surrounding page text.
+Use the images to match each asset with the correct textual context.
 
-**Geographic context** — derive from:
-- Place names, city names, country names mentioned in the page text
-- Captions or descriptions referencing locations
-- Geographic references near the asset on the page
-- If a specific place is named, provide approximate coordinates (city/region center is fine)
-- Set geo to null if no location can be determined from the text
+PRIORITY ORDER for deriving geo/date:
+1. **ASSET DESCRIPTION & METADATA** (highest priority) — the title, description, category, and metadata fields already attached to each asset. These were assigned during detection and are the most direct source.
+2. **PAGE TEXT CONTEXT** — extracted text from the same page. Use captions, headings, place names, dates, and historical references near each asset.
+3. **VISUAL CUES** (supporting) — use the image itself to confirm or supplement what the text says (architecture style, landscape, fashion era, visible signage, etc.). Do NOT rely on visual analysis alone when text is available.
 
-**Temporal context** — derive from:
-- Explicit dates in the page text (publication dates, historical dates, "circa" dates)
-- Historical periods or eras referenced in text
-- Time-related descriptions in asset metadata (e.g. "18th century painting")
-- Set dateInfo to null if no time can be determined from the text
-
-Be conservative — only assign geo/dateInfo when the text provides clear evidence.`;
+RULES:
+- Set geo to null if no location can be determined.
+- Set dateInfo to null if no time period can be determined.
+- Be conservative — only assign when evidence supports it.
+- Use city/region center coordinates when exact location is unclear but a place is named.
+- For fictional/fantasy content: use real-world analogs for era, leave geo null unless a real location is referenced.
+- For logos, diagrams, or abstract images: set both null unless text context provides information.`;
 
 interface EnrichRequest {
   projectId: string;
@@ -117,11 +117,13 @@ export async function POST(req: NextRequest): Promise<Response> {
     }
   }
 
-  /* ── Collect unenriched assets grouped by page ── */
+  /* ── Collect unenriched assets grouped by page, plus page image URLs ── */
   const byPage = new Map<number, PageAsset[]>();
+  const pageUrlMap = new Map<number, string>(); // pageNumber -> full page image URL
   let totalUnenriched = 0;
 
   for (const page of manifest.pages || []) {
+    let hasUnenriched = false;
     for (const asset of page.assets || []) {
       if ((asset as Record<string, unknown>)._enriched) continue;
       if (asset.geo || asset.dateInfo) continue;
@@ -129,6 +131,10 @@ export async function POST(req: NextRequest): Promise<Response> {
       arr.push(asset);
       byPage.set(page.pageNumber, arr);
       totalUnenriched++;
+      hasUnenriched = true;
+    }
+    if (hasUnenriched) {
+      pageUrlMap.set(page.pageNumber, page.url);
     }
   }
 
@@ -138,7 +144,7 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   console.log(`[enrich] Found ${totalUnenriched} unenriched assets across ${byPage.size} pages`);
 
-  /* ── Call Gemini with TEXT ONLY — no images ── */
+  /* ── Set up Gemini ── */
   const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
   const model = genAI.getGenerativeModel({
     model: MODEL,
@@ -152,95 +158,130 @@ export async function POST(req: NextRequest): Promise<Response> {
 
   let totalEnriched = 0;
   const errors: string[] = [];
+  const BATCH_SIZE = 10; // smaller batches since we're sending images
 
-  // Batch pages together (~20 assets per Gemini call)
-  const BATCH_SIZE = 20;
-  const allEntries = Array.from(byPage.entries());
-  let pendingPages: { pageNum: number; assets: PageAsset[] }[] = [];
-  let pendingCount = 0;
-  const batches: (typeof pendingPages)[] = [];
-
-  for (const [pageNum, assets] of allEntries) {
-    pendingPages.push({ pageNum, assets });
-    pendingCount += assets.length;
-    if (pendingCount >= BATCH_SIZE) {
-      batches.push(pendingPages);
-      pendingPages = [];
-      pendingCount = 0;
+  /* ── Helper: fetch image as base64 ── */
+  async function fetchImage(url: string): Promise<{ data: string; mimeType: string } | null> {
+    try {
+      const res = await fetch(url);
+      if (!res.ok) return null;
+      const buf = Buffer.from(await res.arrayBuffer());
+      const mimeType = res.headers.get("content-type") || "image/png";
+      return { data: buf.toString("base64"), mimeType };
+    } catch {
+      return null;
     }
   }
-  if (pendingPages.length > 0) batches.push(pendingPages);
 
-  for (const batch of batches) {
-    let prompt = "Analyze these assets and provide geo/dateInfo based on the text context.\n\n";
-
-    for (const { pageNum, assets } of batch) {
-      prompt += `=== PAGE ${pageNum} ===\n`;
-
-      const pageText = pageTextMap.get(pageNum);
-      if (pageText) {
-        const truncated = pageText.length > 3000 ? pageText.slice(0, 3000) + "\n[...truncated]" : pageText;
-        prompt += `EXTRACTED TEXT:\n${truncated}\n\n`;
-      } else {
-        prompt += `EXTRACTED TEXT: (not available)\n\n`;
-      }
-
-      prompt += `ASSETS ON THIS PAGE:\n`;
-      for (const asset of assets) {
-        prompt += `- assetId: "${asset.assetId}"`;
-        if (asset.title) prompt += `, title: "${asset.title}"`;
-        if (asset.description) prompt += `, description: "${asset.description}"`;
-        if (asset.category) prompt += `, category: "${asset.category}"`;
-        if (asset.metadata) {
-          const metaStr = Object.entries(asset.metadata).map(([k, v]) => `${k}: ${v}`).join("; ");
-          if (metaStr) prompt += `, metadata: {${metaStr}}`;
-        }
-        prompt += `\n`;
-      }
-      prompt += `\n`;
+  /* ── Process page by page ── */
+  for (const [pageNum, assets] of byPage) {
+    // Sub-batch within each page
+    const subBatches: PageAsset[][] = [];
+    for (let i = 0; i < assets.length; i += BATCH_SIZE) {
+      subBatches.push(assets.slice(i, i + BATCH_SIZE));
     }
 
-    const assetIds = batch.flatMap(b => b.assets.map(a => a.assetId));
-    console.log(`[enrich] Sending ${assetIds.length} assets to Gemini (text-only, ${prompt.length} chars)`);
+    // Fetch page image once per page
+    const pageUrl = pageUrlMap.get(pageNum);
+    let pageImagePart: { inlineData: { data: string; mimeType: string } } | null = null;
+    if (pageUrl) {
+      const img = await fetchImage(pageUrl);
+      if (img) {
+        pageImagePart = { inlineData: img };
+        console.log(`[enrich] Page ${pageNum}: loaded page image (${(img.data.length * 0.75 / 1024).toFixed(0)}KB)`);
+      }
+    }
 
-    try {
-      const result = await model.generateContent(prompt);
-      const text = result.response.text();
-      console.log(`[enrich] Gemini response (${text.length} chars)`);
+    for (const batch of subBatches) {
+      // Build multimodal content parts: text + images interleaved
+      const parts: Array<{ text: string } | { inlineData: { data: string; mimeType: string } }> = [];
 
-      const parsed = JSON.parse(text) as Array<{
-        assetId: string;
-        geo?: { lat: number; lng: number; placeName: string } | null;
-        dateInfo?: { date?: string; era?: string; label: string } | null;
-      }>;
+      // 1. Start with the text context for this page
+      let textBlock = `=== PAGE ${pageNum} ===\n`;
+      const pageText = pageTextMap.get(pageNum);
+      if (pageText) {
+        const truncated = pageText.length > 4000 ? pageText.slice(0, 4000) + "\n[...truncated]" : pageText;
+        textBlock += `\nEXTRACTED PAGE TEXT:\n${truncated}\n`;
+      }
+      textBlock += `\nASSETS TO ANALYZE:\n`;
+      for (const asset of batch) {
+        textBlock += `\n- assetId: "${asset.assetId}"`;
+        if (asset.title) textBlock += `\n  title: "${asset.title}"`;
+        if (asset.description) textBlock += `\n  description: "${asset.description}"`;
+        if (asset.category) textBlock += `\n  category: "${asset.category}"`;
+        if (asset.metadata) {
+          const metaStr = Object.entries(asset.metadata).map(([k, v]) => `${k}: ${v}`).join("; ");
+          if (metaStr) textBlock += `\n  metadata: {${metaStr}}`;
+        }
+      }
+      textBlock += `\n\nBelow are the images. First the full page, then each individual asset image labeled with its assetId.\n`;
+      parts.push({ text: textBlock });
 
-      for (const enrichment of parsed) {
-        if (!enrichment.assetId) continue;
-        for (const page of manifest.pages || []) {
-          const asset = page.assets?.find((a) => a.assetId === enrichment.assetId);
-          if (!asset) continue;
-          if (enrichment.geo) asset.geo = enrichment.geo;
-          if (enrichment.dateInfo) asset.dateInfo = enrichment.dateInfo;
-          (asset as Record<string, unknown>)._enriched = true;
-          totalEnriched++;
-          break;
+      // 2. Full page image (helps Gemini see where assets sit in context)
+      if (pageImagePart) {
+        parts.push({ text: `[Full page ${pageNum} image:]` });
+        parts.push(pageImagePart);
+      }
+
+      // 3. Individual asset images
+      const assetIds: string[] = [];
+      for (const asset of batch) {
+        const imageUrl = asset.thumbnailUrl || asset.url;
+        const img = await fetchImage(imageUrl);
+        if (img) {
+          parts.push({ text: `[Asset "${asset.assetId}":]` });
+          parts.push({ inlineData: img });
+          assetIds.push(asset.assetId);
+        } else {
+          console.warn(`[enrich] Could not fetch image for ${asset.assetId}`);
+          // Still include in text so Gemini can try from text alone
+          assetIds.push(asset.assetId);
         }
       }
 
-      // Mark assets we sent but Gemini didn't return results for
-      for (const aid of assetIds) {
-        if (parsed.some(p => p.assetId === aid)) continue;
-        for (const page of manifest.pages || []) {
-          const asset = page.assets?.find((a) => a.assetId === aid);
-          if (!asset) continue;
-          (asset as Record<string, unknown>)._enriched = true;
-          break;
+      if (assetIds.length === 0) continue;
+
+      console.log(`[enrich] Page ${pageNum}: sending ${assetIds.length} assets to Gemini (${parts.length} parts)`);
+
+      try {
+        const result = await model.generateContent(parts);
+        const text = result.response.text();
+        console.log(`[enrich] Gemini response (${text.length} chars)`);
+
+        const parsed = JSON.parse(text) as Array<{
+          assetId: string;
+          geo?: { lat: number; lng: number; placeName: string } | null;
+          dateInfo?: { date?: string; era?: string; label: string } | null;
+        }>;
+
+        for (const enrichment of parsed) {
+          if (!enrichment.assetId) continue;
+          for (const page of manifest.pages || []) {
+            const asset = page.assets?.find((a) => a.assetId === enrichment.assetId);
+            if (!asset) continue;
+            if (enrichment.geo) asset.geo = enrichment.geo;
+            if (enrichment.dateInfo) asset.dateInfo = enrichment.dateInfo;
+            (asset as Record<string, unknown>)._enriched = true;
+            totalEnriched++;
+            break;
+          }
         }
+
+        // Mark assets we sent but Gemini didn't return results for
+        for (const aid of assetIds) {
+          if (parsed.some(p => p.assetId === aid)) continue;
+          for (const page of manifest.pages || []) {
+            const asset = page.assets?.find((a) => a.assetId === aid);
+            if (!asset) continue;
+            (asset as Record<string, unknown>)._enriched = true;
+            break;
+          }
+        }
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e);
+        console.error(`[enrich] Gemini batch error page ${pageNum}:`, msg);
+        errors.push(`Page ${pageNum}: ${msg}`);
       }
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      console.error(`[enrich] Gemini batch error:`, msg);
-      errors.push(msg);
     }
   }
 
