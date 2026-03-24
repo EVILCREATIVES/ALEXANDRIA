@@ -241,6 +241,7 @@ export default function Page() {
   const [pagesPreviewOpen, setPagesPreviewOpen] = useState(false);
   const [deletingAssets, setDeletingAssets] = useState<Record<string, boolean>>({});
   const [thumbnailsBusy, setThumbnailsBusy] = useState(false);
+  const [enrichBusy, setEnrichBusy] = useState(false);
   const [styleBusy, setStyleBusy] = useState(false);
   const [schemaBusy, setSchemaBusy] = useState(false);
 
@@ -418,6 +419,54 @@ export default function Page() {
       log(`Thumbnail error: ${msg}`);
     } finally {
       setThumbnailsBusy(false);
+    }
+  }
+
+  async function enrichAssets() {
+    if (!projectId || !manifestUrl) return;
+    setEnrichBusy(true);
+    setLastError("");
+    log("Starting enrichment (geo/time extraction)...");
+    try {
+      const res = await fetch("/api/projects/assets/enrich", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId, manifestUrl })
+      });
+      if (!res.ok) throw new Error(await readErrorText(res));
+
+      const data = (await res.json()) as {
+        ok: boolean;
+        enriched?: number;
+        total?: number;
+        manifestUrl?: string;
+        message?: string;
+        errors?: string[];
+        error?: string;
+      };
+
+      if (!data.ok) throw new Error(data.error || "Enrichment failed");
+
+      const nextManifestUrl = data.manifestUrl || manifestUrl;
+      setManifestUrl(nextManifestUrl);
+      manifestUrlRef.current = nextManifestUrl;
+      setUrlParams(projectId, nextManifestUrl);
+      await loadManifest(nextManifestUrl);
+
+      if (data.message) {
+        log(data.message);
+      } else {
+        log(`Enrichment complete: ${data.enriched ?? 0}/${data.total ?? 0} assets processed`);
+      }
+      if (data.errors?.length) {
+        log(`Enrichment warnings: ${data.errors.length} batch error(s)`);
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setLastError(msg);
+      log(`Enrichment error: ${msg}`);
+    } finally {
+      setEnrichBusy(false);
     }
   }
 
@@ -1262,6 +1311,10 @@ export default function Page() {
             <button type="button" onClick={() => generateThumbnails()} disabled={!!busy || thumbnailsBusy}
               style={{ padding: "8px 16px", fontSize: 13, background: "#fff", color: "#1a1510", border: "1px solid #ccc", borderRadius: 6, cursor: "pointer" }}>
               {thumbnailsBusy ? "Generating..." : "Gen Thumbnails"}
+            </button>
+            <button type="button" onClick={() => enrichAssets()} disabled={!!busy || enrichBusy}
+              style={{ padding: "8px 16px", fontSize: 13, background: "#fff", color: "#1a1510", border: "1px solid #ccc", borderRadius: 6, cursor: "pointer" }}>
+              {enrichBusy ? "Enriching..." : "Enrich"}
             </button>
             <button type="button" onClick={() => rebuildAssets()} disabled={!!busy}
               style={{ padding: "8px 16px", fontSize: 13, background: "#fff", color: "#1a1510", border: "1px solid #ccc", borderRadius: 6, cursor: "pointer" }}>
