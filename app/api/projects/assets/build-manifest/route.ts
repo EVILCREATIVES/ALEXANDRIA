@@ -4,6 +4,7 @@ import { saveManifest, fetchManifestDirect, type PageAsset, type AssetBBox } fro
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 300;
 
 type Body = {
   projectId?: string;

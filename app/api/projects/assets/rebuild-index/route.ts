@@ -4,6 +4,7 @@ import { saveManifest, fetchManifestDirect, type PageAsset } from "@/app/lib/man
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 300;
 
 type Body = {
   projectId?: string;
