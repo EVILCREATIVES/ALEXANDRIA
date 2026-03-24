@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { put } from "@vercel/blob";
 import { saveManifest, fetchManifestDirect } from "@/app/lib/manifest";
-import type Sharp from "sharp";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -96,8 +95,13 @@ export async function POST(req: NextRequest): Promise<Response> {
 
           const buffer = Buffer.from(await response.arrayBuffer());
 
-          // Generate thumbnail using sharp (dynamic import to avoid build-time errors)
-          const sharp = (await import("sharp")).default;
+          // Dynamic-import sharp at runtime.  The module name is built via a
+          // variable so the TypeScript compiler does not attempt to resolve it
+          // at build time (sharp ships as a platform-specific native addon and
+          // may not be present in the CI/build environment).
+          const sharpModule = "sharp";
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          const sharp: any = ((await import(/* webpackIgnore: true */ sharpModule)) as any).default;
           const thumbnail = await sharp(buffer)
             .resize(THUMBNAIL_MAX_WIDTH, undefined, {
               fit: "inside",
