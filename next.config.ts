@@ -13,8 +13,8 @@ if (!process.env.NODE_OPTIONS?.includes("--no-deprecation")) {
 }
 
 const nextConfig: NextConfig = {
-  // Keep google-auth-library external to avoid bundling issues
-  serverExternalPackages: ["google-auth-library"],
+  // Keep native modules external to avoid bundling issues
+  serverExternalPackages: ["google-auth-library", "sharp"],
   // Ensure template files are included in serverless function bundles
   outputFileTracingIncludes: {
     "/api/extraction/load-template": [
