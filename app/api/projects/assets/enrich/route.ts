@@ -259,21 +259,14 @@ export async function POST(req: NextRequest): Promise<Response> {
           for (const page of manifest.pages || []) {
             const asset = page.assets?.find((a) => a.assetId === enrichment.assetId);
             if (!asset) continue;
+            const gotData = !!(enrichment.geo || enrichment.dateInfo);
             if (enrichment.geo) asset.geo = enrichment.geo;
             if (enrichment.dateInfo) asset.dateInfo = enrichment.dateInfo;
-            (asset as Record<string, unknown>)._enriched = true;
-            totalEnriched++;
-            break;
-          }
-        }
-
-        // Mark assets we sent but Gemini didn't return results for
-        for (const aid of assetIds) {
-          if (parsed.some(p => p.assetId === aid)) continue;
-          for (const page of manifest.pages || []) {
-            const asset = page.assets?.find((a) => a.assetId === aid);
-            if (!asset) continue;
-            (asset as Record<string, unknown>)._enriched = true;
+            // Only mark _enriched if we actually got data — allows retry otherwise
+            if (gotData) {
+              (asset as Record<string, unknown>)._enriched = true;
+              totalEnriched++;
+            }
             break;
           }
         }
