@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import { GoogleGenerativeAI, SchemaType, type Schema } from "@google/generative-ai";
 
+export const maxDuration = 300;
+
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
 
 // Allowed models for detection
