@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 60;
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || "";
+const CLAUDE_AI_KEY = process.env.CLAUDE_AI_KEY || "";
 
 type Message = { role: "user" | "assistant"; content: string };
 
@@ -62,7 +62,7 @@ async function streamGemini(messages: Message[], systemPrompt: string): Promise<
 
   const genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
   const model = genAI.getGenerativeModel({
-    model: "gemini-2.5-flash-preview",
+    model: "gemini-3.1-flash-lite-preview",
     generationConfig: { temperature: 0.3, maxOutputTokens: 2048 },
   });
 
@@ -103,16 +103,16 @@ async function streamGemini(messages: Message[], systemPrompt: string): Promise<
 }
 
 async function streamClaude(messages: Message[], systemPrompt: string): Promise<ReadableStream> {
-  if (!ANTHROPIC_API_KEY) throw new Error("ANTHROPIC_API_KEY not configured");
+  if (!CLAUDE_AI_KEY) throw new Error("CLAUDE_AI_KEY not configured");
 
-  const anthropic = new Anthropic({ apiKey: ANTHROPIC_API_KEY });
+  const anthropic = new Anthropic({ apiKey: CLAUDE_AI_KEY });
 
   const encoder = new TextEncoder();
   return new ReadableStream({
     async start(controller) {
       try {
         const stream = anthropic.messages.stream({
-          model: "claude-sonnet-4-20250514",
+          model: "claude-sonnet-4-6-20250514",
           max_tokens: 2048,
           temperature: 0.3,
           system: systemPrompt,

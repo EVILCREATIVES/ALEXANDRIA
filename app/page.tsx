@@ -2442,8 +2442,8 @@ export default function Page() {
                       background: "#2c2218", color: "#d4c5a9", border: "1px solid #4a3f30",
                       cursor: "pointer",
                     }}>
-                    <option value="gemini">Gemini</option>
-                    <option value="claude">Claude</option>
+                    <option value="gemini">Gemini 3.1</option>
+                    <option value="claude">Claude 4.6</option>
                   </select>
                 </div>
                 <div style={{ display: "flex", gap: 6 }}>
