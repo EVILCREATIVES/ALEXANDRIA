@@ -30,6 +30,8 @@ interface DetectedBox {
   title?: string;
   description?: string;
   metadata?: Record<string, string>;
+  geo?: { lat: number; lng: number; placeName: string } | null;
+  dateInfo?: { date?: string; era?: string; label: string } | null;
 }
 
 // Simplified detection rules - PDF Vision Extractor approach
@@ -81,17 +83,39 @@ const analysisSchema: Schema = {
           required: ["key", "value"],
         },
       },
+      geo: {
+        type: SchemaType.OBJECT,
+        description: "Geographic location of the image subject. Infer from visible landmarks, architecture, text, cultural markers, vegetation, or any contextual clue. Set null ONLY for pure abstract art, generic icons, or logos with zero geographic context.",
+        nullable: true,
+        properties: {
+          lat: { type: SchemaType.NUMBER, description: "Latitude" },
+          lng: { type: SchemaType.NUMBER, description: "Longitude" },
+          placeName: { type: SchemaType.STRING, description: "Human-readable place name" },
+        },
+        required: ["lat", "lng", "placeName"],
+      },
+      dateInfo: {
+        type: SchemaType.OBJECT,
+        description: "Temporal context of the image. Infer from artistic style, photographic technique, fashion, technology visible, medium, or any contextual clue. Set null ONLY for pure abstract art or generic logos.",
+        nullable: true,
+        properties: {
+          date: { type: SchemaType.STRING, description: "ISO date or year string (e.g. '1453', '1920-06', '2024-03-15')" },
+          era: { type: SchemaType.STRING, description: "Historical era or period (e.g. 'Medieval', 'Renaissance', '20th Century', 'Modern')" },
+          label: { type: SchemaType.STRING, description: "Short human-readable time label for display" },
+        },
+        required: ["label"],
+      },
       box_2d: {
         type: SchemaType.ARRAY,
         description: "Bounding box [ymin, xmin, ymax, xmax] on 0-1000 scale",
         items: { type: SchemaType.INTEGER },
       },
     },
-    required: ["title", "description", "category", "box_2d"],
+    required: ["title", "description", "category", "geo", "dateInfo", "box_2d"],
   },
 };
 
-const DEFAULT_PROMPT = `Detect every image on this page. For each image found, provide its title, description, category, bounding box, and any relevant metadata.
+const DEFAULT_PROMPT = `Detect every image on this page. For each image found, provide its title, description, category, bounding box, relevant metadata, geographic location, and time period.
 
 What counts as an image:
 - Illustrations, character art, portraits
@@ -118,6 +142,24 @@ Extract any content-specific metadata visible in or inferable from the image:
 - For diagrams/charts: chartType (e.g. "bar chart", "flowchart"), subject
 - For any image: period, culture, material, technique — whatever is genuinely relevant
 Only include metadata keys that are clearly supported by visual evidence. Do not guess.
+
+Location (geo):
+You MUST determine the geographic location for every image. Use ALL available clues:
+- Visible text, captions, labels, place names on the page
+- Architecture style, landmarks, cultural markers
+- Vegetation, landscape, climate indicators
+- Language/script visible, cultural artifacts
+- Subject matter context (e.g. "Samurai" → Japan, "Colosseum" → Rome)
+Use city/region center coordinates when exact location is unclear. Only return null for pure abstract art or generic logos.
+
+Time Period (dateInfo):
+You MUST determine the time period for every image. Use ALL available clues:
+- Dates visible in text or captions on the page
+- Photographic technique (daguerreotype → 1840s-1860s, albumen print → 1850s-1890s, etc.)
+- Artistic style and medium (oil painting style, engraving technique, etc.)
+- Fashion, technology, architecture visible
+- Historical context from subject matter
+When in doubt, give your best estimate. Only return null for pure abstract art or generic logos.
 
 Be thorough — check edges and corners too.`;
 
@@ -321,6 +363,8 @@ async function detectVisualElements(
             description: el.description,
             category: el.category,
             ...(Object.keys(meta).length > 0 ? { metadata: meta } : {}),
+            geo: el.geo || null,
+            dateInfo: el.dateInfo || null,
           };
         })
         .filter(box => box.width >= minSizePx && box.height >= minSizePx);

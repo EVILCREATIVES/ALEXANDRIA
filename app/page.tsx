@@ -619,7 +619,6 @@ export default function Page() {
   const [pagesPreviewOpen, setPagesPreviewOpen] = useState(false);
   const [deletingAssets, setDeletingAssets] = useState<Record<string, boolean>>({});
   const [thumbnailsBusy, setThumbnailsBusy] = useState(false);
-  const [enrichBusy, setEnrichBusy] = useState(false);
   const [viewMode, setViewMode] = useState<"grid" | "map" | "timeline">("grid");
   const [selectedAsset, setSelectedAsset] = useState<(PageAsset & { pageNumber: number }) | null>(null);
 
@@ -791,41 +790,6 @@ export default function Page() {
       log(`Thumbnail error: ${msg}`);
     } finally {
       setThumbnailsBusy(false);
-    }
-  }
-
-  async function enrichAssets(force = false) {
-    if (!projectId || !manifestUrl) return;
-    setEnrichBusy(true);
-    setLastError("");
-    log(force ? "Starting FULL re-enrichment (force mode)..." : "Starting geo/timeline enrichment...");
-    try {
-      const res = await fetch("/api/projects/assets/enrich", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectId, manifestUrl, force })
-      });
-      if (!res.ok) throw new Error(await readErrorText(res));
-      const data = (await res.json()) as { ok: boolean; enriched?: number; total?: number; manifestUrl?: string; error?: string; errors?: string[] };
-      if (!data.ok) throw new Error(data.error || "Enrichment failed");
-      log(`Enrichment complete: ${data.enriched ?? 0}/${data.total ?? 0} assets enriched`);
-      if (data.errors && data.errors.length > 0) {
-        for (const err of data.errors) log(`  ⚠️ ${err}`);
-      }
-      // Always reload manifest (URL may be same but content changed)
-      const mUrl = data.manifestUrl || manifestUrl;
-      if (mUrl) {
-        setManifestUrl(mUrl);
-        manifestUrlRef.current = mUrl;
-        setUrlParams(projectId, mUrl);
-        await loadManifest(mUrl);
-      }
-    } catch (e) {
-      const msg = e instanceof Error ? e.message : String(e);
-      setLastError(msg);
-      log(`Enrichment error: ${msg}`);
-    } finally {
-      setEnrichBusy(false);
     }
   }
 
@@ -1026,7 +990,7 @@ export default function Page() {
     log("Starting image detection with Gemini...");
 
     try {
-      const allResults: Map<number, Array<{ x: number; y: number; width: number; height: number; category?: string; title?: string; description?: string; metadata?: Record<string, string> }>> = new Map();
+      const allResults: Map<number, Array<{ x: number; y: number; width: number; height: number; category?: string; title?: string; description?: string; metadata?: Record<string, string>; geo?: { lat: number; lng: number; placeName: string } | null; dateInfo?: { date?: string; era?: string; label: string } | null }>> = new Map();
 
       // Detect images on pages in parallel batches of 3
       log("=== Detecting images on all pages (parallel) ===");
@@ -1049,7 +1013,7 @@ export default function Page() {
           });
           if (!detectRes.ok) { log(`Detection failed page ${page.pageNumber}: ${await readErrorText(detectRes)}`); return; }
 
-          const detected = (await detectRes.json()) as { boxes?: Array<{ x: number; y: number; width: number; height: number; category?: string; title?: string; description?: string; metadata?: Record<string, string> }>; error?: string };
+          const detected = (await detectRes.json()) as { boxes?: Array<{ x: number; y: number; width: number; height: number; category?: string; title?: string; description?: string; metadata?: Record<string, string>; geo?: { lat: number; lng: number; placeName: string } | null; dateInfo?: { date?: string; era?: string; label: string } | null }>; error?: string };
           const boxes = detected.boxes ?? [];
           log(`Page ${page.pageNumber}: ${boxes.length} images found`);
           if (boxes.length > 0) allResults.set(page.pageNumber, boxes);
@@ -1072,7 +1036,7 @@ export default function Page() {
         });
 
         // Crop all assets from this page first
-        const croppedAssets: Array<{ assetId: string; pngBlob: Blob; bbox: AssetBBox; title?: string; description?: string; category?: string; metadata?: Record<string, string> }> = [];
+        const croppedAssets: Array<{ assetId: string; pngBlob: Blob; bbox: AssetBBox; title?: string; description?: string; category?: string; metadata?: Record<string, string>; geo?: { lat: number; lng: number; placeName: string } | null; dateInfo?: { date?: string; era?: string; label: string } | null }> = [];
         for (let i = 0; i < boxes.length; i++) {
           const b = boxes[i];
           const bbox: AssetBBox = { x: b.x, y: b.y, w: b.width, h: b.height };
@@ -1087,7 +1051,7 @@ export default function Page() {
             canvas.toBlob((bb) => (bb ? resolve(bb) : reject(new Error("toBlob returned null"))), "image/png");
           });
           const assetId = `p${page.pageNumber}-img${String(i + 1).padStart(2, "0")}`;
-          croppedAssets.push({ assetId, pngBlob, bbox, title: b.title, description: b.description, category: b.category, metadata: b.metadata });
+          croppedAssets.push({ assetId, pngBlob, bbox, title: b.title, description: b.description, category: b.category, metadata: b.metadata, geo: b.geo, dateInfo: b.dateInfo });
         }
 
         // Upload all assets from this page in parallel (batches of 4)
@@ -1101,7 +1065,7 @@ export default function Page() {
               handleUploadUrl: "/api/blob"
             });
 
-            const metadata = { assetId: asset.assetId, pageNumber: page.pageNumber, url: uploaded.url, bbox: asset.bbox, title: asset.title, description: asset.description, category: asset.category, metadata: asset.metadata };
+            const metadata = { assetId: asset.assetId, pageNumber: page.pageNumber, url: uploaded.url, bbox: asset.bbox, title: asset.title, description: asset.description, category: asset.category, metadata: asset.metadata, geo: asset.geo, dateInfo: asset.dateInfo };
             await upload(`projects/${projectId}/assets/p${page.pageNumber}/${asset.assetId}.meta.txt`,
               new File([JSON.stringify(metadata)], `${asset.assetId}.meta.txt`, { type: "text/plain" }), {
               access: "public",
@@ -1133,40 +1097,6 @@ export default function Page() {
       const totalDetected = Array.from(allResults.values()).reduce((sum, b) => sum + b.length, 0);
       log(`Detection complete: ${totalDetected} assets on ${allResults.size} pages`);
       await refreshProjects();
-
-      // Auto-enrich geo/timeline immediately after detection
-      if (totalDetected > 0) {
-        const mUrl = buildResult.manifestUrl;
-        log("Auto-enriching geo/timeline data...");
-        setBusy("Enriching geo/timeline...");
-        try {
-          const enrichRes = await fetch("/api/projects/assets/enrich", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ projectId, manifestUrl: mUrl, force: true })
-          });
-          if (enrichRes.ok) {
-            const enrichData = (await enrichRes.json()) as { ok: boolean; enriched?: number; total?: number; manifestUrl?: string; error?: string; errors?: string[] };
-            if (enrichData.ok) {
-              log(`Geo/timeline enriched: ${enrichData.enriched ?? 0}/${enrichData.total ?? 0} assets`);
-              if (enrichData.errors?.length) {
-                for (const err of enrichData.errors) log(`  ⚠️ ${err}`);
-              }
-              const enrichedUrl = enrichData.manifestUrl || mUrl;
-              setManifestUrl(enrichedUrl);
-              manifestUrlRef.current = enrichedUrl;
-              setUrlParams(projectId, enrichedUrl);
-              await loadManifest(enrichedUrl);
-            } else {
-              log(`Geo/timeline enrichment issue: ${enrichData.error || "unknown"}`);
-            }
-          } else {
-            log(`Geo/timeline enrichment failed: ${await readErrorText(enrichRes)}`);
-          }
-        } catch (enrichErr) {
-          log(`Geo/timeline enrichment error: ${enrichErr instanceof Error ? enrichErr.message : String(enrichErr)}`);
-        }
-      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       log(`Detection error: ${msg}`);
@@ -1733,13 +1663,9 @@ export default function Page() {
                         </button>
                       ))}
                       <div style={{ flex: 1 }} />
-                      <button type="button" onClick={() => enrichAssets()} disabled={!!busy || enrichBusy}
-                        style={{ padding: "6px 14px", fontSize: 12, background: "#065f46", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", fontWeight: 500 }}>
-                        {enrichBusy ? "Enriching..." : "🔍 Enrich Geo/Timeline"}
-                      </button>
-                      <button type="button" onClick={() => enrichAssets(true)} disabled={!!busy || enrichBusy}
+                      <button type="button" onClick={() => splitImages()} disabled={!!busy}
                         style={{ padding: "6px 14px", fontSize: 12, background: "#854d0e", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", fontWeight: 500 }}>
-                        {enrichBusy ? "Enriching..." : "🔄 Re-Enrich All"}
+                        {busy ? "Working..." : "🔄 Re-Detect Images"}
                       </button>
                     </div>
 

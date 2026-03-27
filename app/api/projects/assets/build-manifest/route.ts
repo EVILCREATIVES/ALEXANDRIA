@@ -20,6 +20,8 @@ type AssetMetadata = {
   description?: string;
   category?: string;
   metadata?: Record<string, string>;
+  geo?: { lat: number; lng: number; placeName?: string } | null;
+  dateInfo?: { date?: string; era?: string; label?: string } | null;
 };
 
 type ListResult = {
@@ -104,6 +106,8 @@ export async function POST(req: Request): Promise<Response> {
         description: meta.description,
         category: meta.category,
         metadata: meta.metadata,
+        geo: meta.geo || undefined,
+        dateInfo: meta.dateInfo || undefined,
       };
 
       const existing = pageAssets.get(meta.pageNumber) || [];
@@ -143,6 +147,8 @@ export async function POST(req: Request): Promise<Response> {
           title: a.title || existing?.title,
           description: a.description || existing?.description,
           category: a.category || existing?.category,
+          geo: a.geo || existing?.geo,
+          dateInfo: a.dateInfo || existing?.dateInfo,
           // Preserve existing tags
           tags: existing?.tags,
           negativeTags: existing?.negativeTags,
