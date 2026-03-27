@@ -283,6 +283,8 @@ async function detectVisualElements(
         description: string;
         category?: string;
         metadata?: Array<{ key: string; value: string }> | null;
+        geo?: { lat: number; lng: number; placeName: string } | null;
+        dateInfo?: { date?: string; era?: string; label: string } | null;
         box_2d: number[];
       }>;
 
