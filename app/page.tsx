@@ -219,6 +219,13 @@ function AssetDetailOverlay({ asset, onClose }: { asset: PageAsset & { pageNumbe
             {asset.assetId} • Page {asset.pageNumber}
           </div>
 
+          {/* Author */}
+          {asset.author && (
+            <div style={{ fontSize: 14, color: "#6b5d4d", marginTop: 6, fontWeight: 500 }}>
+              ✍️ {asset.author}
+            </div>
+          )}
+
           {/* Description */}
           {asset.description && (
             <p style={{ fontSize: 14, color: "#4a4237", lineHeight: 1.6, margin: "12px 0 0" }}>
@@ -234,6 +241,11 @@ function AssetDetailOverlay({ asset, onClose }: { asset: PageAsset & { pageNumbe
               {hasGeo ? (
                 <>
                   <div style={{ fontSize: 14, fontWeight: 600, color: "#1a1510" }}>{asset.geo!.placeName || "Unknown"}</div>
+                  {(asset.geo!.city || asset.geo!.region || asset.geo!.country || asset.geo!.continent) && (
+                    <div style={{ fontSize: 11, color: "#6b5d4d", marginTop: 2 }}>
+                      {[asset.geo!.city, asset.geo!.region, asset.geo!.country, asset.geo!.continent].filter(Boolean).join(" › ")}
+                    </div>
+                  )}
                   <div style={{ fontSize: 11, color: "#8a7e6b", marginTop: 2 }}>{asset.geo!.lat.toFixed(4)}, {asset.geo!.lng.toFixed(4)}</div>
                 </>
               ) : (
@@ -339,21 +351,39 @@ function AssetDetailOverlay({ asset, onClose }: { asset: PageAsset & { pageNumbe
 function MapView({ assets, onSelect }: { assets: (PageAsset & { pageNumber: number })[]; onSelect?: (a: PageAsset & { pageNumber: number }) => void }) {
   const mapRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<unknown>(null);
+  const leafletReady = useRef(false);
   const geoAssets = useMemo(() => assets.filter((a) => a.geo), [assets]);
+  const assetsRef = useRef(geoAssets);
+  const onSelectRef = useRef(onSelect);
 
+  useEffect(() => { assetsRef.current = geoAssets; }, [geoAssets]);
+  useEffect(() => { onSelectRef.current = onSelect; }, [onSelect]);
+
+  // Load Leaflet once
   useEffect(() => {
-    if (!mapRef.current || geoAssets.length === 0) return;
-    if (mapInstanceRef.current) return; // already initialized
-
-    // Load Leaflet dynamically
+    if (leafletReady.current) return;
+    if ((window as unknown as Record<string, unknown>).L) { leafletReady.current = true; return; }
     const link = document.createElement("link");
     link.rel = "stylesheet";
     link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
     document.head.appendChild(link);
-
     const script = document.createElement("script");
     script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
-    script.onload = () => {
+    script.onload = () => { leafletReady.current = true; };
+    document.head.appendChild(script);
+  }, []);
+
+  // Build/rebuild map whenever geoAssets change
+  useEffect(() => {
+    if (geoAssets.length === 0) return;
+
+    // Destroy previous
+    if (mapInstanceRef.current) {
+      (mapInstanceRef.current as { remove: () => void }).remove();
+      mapInstanceRef.current = null;
+    }
+
+    const tryInit = () => {
       const L = (window as unknown as Record<string, unknown>).L as {
         map: (el: HTMLElement) => {
           setView: (center: [number, number], zoom: number) => unknown;
@@ -363,7 +393,7 @@ function MapView({ assets, onSelect }: { assets: (PageAsset & { pageNumber: numb
         marker: (latlng: [number, number]) => { addTo: (map: unknown) => { bindPopup: (html: string) => void } };
         latLngBounds: (points: [number, number][]) => unknown;
       };
-      if (!L || !mapRef.current) return;
+      if (!L || !mapRef.current) return false;
 
       const map = L.map(mapRef.current).setView([20, 0], 2);
       mapInstanceRef.current = map;
@@ -374,33 +404,41 @@ function MapView({ assets, onSelect }: { assets: (PageAsset & { pageNumber: numb
       }).addTo(map);
 
       const points: [number, number][] = [];
-      for (const asset of geoAssets) {
+      for (const asset of assetsRef.current) {
         if (!asset.geo) continue;
         const pos: [number, number] = [asset.geo.lat, asset.geo.lng];
         points.push(pos);
         const thumb = asset.thumbnailUrl || asset.url;
-        const popup = `<div style="text-align:center;max-width:200px"><img src="${thumb}" style="width:100%;max-height:120px;object-fit:cover;border-radius:4px;margin-bottom:4px"/><div style="font-weight:600;font-size:12px">${asset.title || asset.assetId}</div><div style="font-size:11px;color:#666">${asset.geo.placeName || ""}</div>${asset.dateInfo?.label ? `<div style="font-size:11px;color:#888">📅 ${asset.dateInfo.label}</div>` : ""}<button data-asset-id="${asset.assetId}" class="map-detail-btn" style="margin-top:6px;padding:3px 10px;font-size:11px;background:#1a1510;color:#fff;border:none;border-radius:4px;cursor:pointer">View Details</button></div>`;
+        const safeTitle = (asset.title || asset.assetId).replace(/"/g, "&quot;");
+        const safePn = (asset.geo.placeName || "").replace(/"/g, "&quot;");
+        const popup = `<div style="text-align:center;max-width:200px"><img src="${thumb}" style="width:100%;max-height:120px;object-fit:cover;border-radius:4px;margin-bottom:4px"/><div style="font-weight:600;font-size:12px">${safeTitle}</div><div style="font-size:11px;color:#666">${safePn}</div>${asset.dateInfo?.label ? `<div style="font-size:11px;color:#888">📅 ${asset.dateInfo.label}</div>` : ""}${asset.author ? `<div style="font-size:11px;color:#888">✍️ ${asset.author.replace(/"/g, "&quot;")}</div>` : ""}<button data-asset-id="${asset.assetId}" class="map-detail-btn" style="margin-top:6px;padding:3px 10px;font-size:11px;background:#1a1510;color:#fff;border:none;border-radius:4px;cursor:pointer">View Details</button></div>`;
         L.marker(pos).addTo(map).bindPopup(popup);
       }
 
       // Event delegation for popup "View Details" buttons
-      if (onSelect) {
-        mapRef.current.addEventListener("click", (e) => {
-          const btn = (e.target as HTMLElement).closest(".map-detail-btn") as HTMLElement | null;
-          if (!btn) return;
-          const aid = btn.dataset.assetId;
-          const found = geoAssets.find((a) => a.assetId === aid);
-          if (found) onSelect(found);
-        });
-      }
+      mapRef.current.addEventListener("click", (e) => {
+        const btn = (e.target as HTMLElement).closest(".map-detail-btn") as HTMLElement | null;
+        if (!btn) return;
+        const aid = btn.dataset.assetId;
+        const found = assetsRef.current.find((a) => a.assetId === aid);
+        if (found && onSelectRef.current) onSelectRef.current(found);
+      });
 
       if (points.length > 1) {
         (map as unknown as { fitBounds: (b: unknown, o: Record<string, unknown>) => void }).fitBounds(L.latLngBounds(points), { padding: [40, 40] });
       } else if (points.length === 1) {
         (map as unknown as { setView: (c: [number, number], z: number) => void }).setView(points[0], 6);
       }
+      return true;
     };
-    document.head.appendChild(script);
+
+    // Leaflet might not be loaded yet
+    if (!tryInit()) {
+      const interval = setInterval(() => {
+        if (tryInit()) clearInterval(interval);
+      }, 100);
+      return () => clearInterval(interval);
+    }
 
     return () => {
       if (mapInstanceRef.current) {
@@ -415,7 +453,7 @@ function MapView({ assets, onSelect }: { assets: (PageAsset & { pageNumber: numb
       <div style={{ padding: "40px 20px", textAlign: "center", color: "#8a7e6b" }}>
         <div style={{ fontSize: 40, marginBottom: 12 }}>🗺️</div>
         <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>No geographic data yet</div>
-        <div style={{ fontSize: 13 }}>Click &quot;Enrich Geo/Timeline&quot; to analyze assets for location and time context.</div>
+        <div style={{ fontSize: 13 }}>Re-detect images to generate location data, or no matching assets with current filters.</div>
       </div>
     );
   }
@@ -447,7 +485,7 @@ function TimelineView({ assets, onSelect }: { assets: (PageAsset & { pageNumber:
       <div style={{ padding: "40px 20px", textAlign: "center", color: "#8a7e6b" }}>
         <div style={{ fontSize: 40, marginBottom: 12 }}>📅</div>
         <div style={{ fontSize: 14, fontWeight: 600, marginBottom: 4 }}>No timeline data yet</div>
-        <div style={{ fontSize: 13 }}>Click &quot;Enrich Geo/Timeline&quot; to analyze assets for location and time context.</div>
+        <div style={{ fontSize: 13 }}>Re-detect images to generate timeline data, or no matching assets with current filters.</div>
       </div>
     );
   }
@@ -521,6 +559,11 @@ function TimelineView({ assets, onSelect }: { assets: (PageAsset & { pageNumber:
                         📍 {asset.geo.placeName}
                       </div>
                     )}
+                    {asset.author && (
+                      <div style={{ fontSize: 11, color: "#8a7e6b", marginTop: 1 }}>
+                        ✍️ {asset.author}
+                      </div>
+                    )}
                     <div style={{ fontSize: 10, color: "#a89e8c", marginTop: 2 }}>
                       Page {asset.pageNumber}
                     </div>
@@ -533,6 +576,125 @@ function TimelineView({ assets, onSelect }: { assets: (PageAsset & { pageNumber:
       </div>
     </div>
   );
+}
+
+/* ───────── Asset Filter Bar ───────── */
+type AssetFilterState = { continent?: string; country?: string; region?: string; city?: string; author?: string; category?: string };
+
+function AssetFilterBar({ assets, filter, onChange }: {
+  assets: (PageAsset & { pageNumber: number })[];
+  filter: AssetFilterState;
+  onChange: (f: AssetFilterState) => void;
+}) {
+  const options = useMemo(() => {
+    const continents = new Set<string>();
+    const countries = new Set<string>();
+    const regions = new Set<string>();
+    const cities = new Set<string>();
+    const authors = new Set<string>();
+    const categories = new Set<string>();
+
+    for (const a of assets) {
+      if (a.geo?.continent) continents.add(a.geo.continent);
+      if (a.geo?.country) countries.add(a.geo.country);
+      if (a.geo?.region) regions.add(a.geo.region);
+      if (a.geo?.city) cities.add(a.geo.city);
+      if (a.author) authors.add(a.author);
+      if (a.category) categories.add(a.category);
+    }
+
+    // Filter cascading: if continent selected, only show countries in that continent, etc.
+    let filtered = assets;
+    if (filter.continent) filtered = filtered.filter(a => a.geo?.continent === filter.continent);
+    if (filter.country) filtered = filtered.filter(a => a.geo?.country === filter.country);
+    if (filter.region) filtered = filtered.filter(a => a.geo?.region === filter.region);
+
+    const filteredCountries = new Set<string>();
+    const filteredRegions = new Set<string>();
+    const filteredCities = new Set<string>();
+    for (const a of filtered) {
+      if (a.geo?.country) filteredCountries.add(a.geo.country);
+      if (a.geo?.region) filteredRegions.add(a.geo.region);
+      if (a.geo?.city) filteredCities.add(a.geo.city);
+    }
+
+    return {
+      continents: [...continents].sort(),
+      countries: [...(filter.continent ? filteredCountries : countries)].sort(),
+      regions: [...(filter.continent || filter.country ? filteredRegions : regions)].sort(),
+      cities: [...(filter.continent || filter.country || filter.region ? filteredCities : cities)].sort(),
+      authors: [...authors].sort(),
+      categories: [...categories].sort(),
+    };
+  }, [assets, filter.continent, filter.country, filter.region]);
+
+  const selStyle: React.CSSProperties = {
+    padding: "4px 8px", fontSize: 11, borderRadius: 5,
+    border: "1px solid #d4c5a9", background: "#fff", color: "#1a1510",
+    cursor: "pointer", minWidth: 0, maxWidth: 150,
+  };
+
+  const hasFilter = filter.continent || filter.country || filter.region || filter.city || filter.author || filter.category;
+
+  return (
+    <div style={{ display: "flex", flexWrap: "wrap", alignItems: "center", gap: 6, marginBottom: 12 }}>
+      <span style={{ fontSize: 11, fontWeight: 600, color: "#8a7e6b" }}>Filter:</span>
+
+      {options.continents.length > 0 && (
+        <select value={filter.continent || ""} onChange={e => onChange({ ...filter, continent: e.target.value || undefined, country: undefined, region: undefined, city: undefined })} style={selStyle}>
+          <option value="">All Continents</option>
+          {options.continents.map(v => <option key={v} value={v}>{v}</option>)}
+        </select>
+      )}
+      {options.countries.length > 0 && (
+        <select value={filter.country || ""} onChange={e => onChange({ ...filter, country: e.target.value || undefined, region: undefined, city: undefined })} style={selStyle}>
+          <option value="">All Countries</option>
+          {options.countries.map(v => <option key={v} value={v}>{v}</option>)}
+        </select>
+      )}
+      {options.regions.length > 0 && (
+        <select value={filter.region || ""} onChange={e => onChange({ ...filter, region: e.target.value || undefined, city: undefined })} style={selStyle}>
+          <option value="">All Regions</option>
+          {options.regions.map(v => <option key={v} value={v}>{v}</option>)}
+        </select>
+      )}
+      {options.cities.length > 0 && (
+        <select value={filter.city || ""} onChange={e => onChange({ ...filter, city: e.target.value || undefined })} style={selStyle}>
+          <option value="">All Cities</option>
+          {options.cities.map(v => <option key={v} value={v}>{v}</option>)}
+        </select>
+      )}
+      {options.authors.length > 0 && (
+        <select value={filter.author || ""} onChange={e => onChange({ ...filter, author: e.target.value || undefined })} style={selStyle}>
+          <option value="">All Authors</option>
+          {options.authors.map(v => <option key={v} value={v}>{v}</option>)}
+        </select>
+      )}
+      {options.categories.length > 0 && (
+        <select value={filter.category || ""} onChange={e => onChange({ ...filter, category: e.target.value || undefined })} style={selStyle}>
+          <option value="">All Types</option>
+          {options.categories.map(v => <option key={v} value={v}>{v}</option>)}
+        </select>
+      )}
+      {hasFilter && (
+        <button type="button" onClick={() => onChange({})}
+          style={{ padding: "3px 8px", fontSize: 10, background: "#e5e0d5", color: "#6b5d4d", border: "none", borderRadius: 4, cursor: "pointer" }}>
+          ✕ Clear
+        </button>
+      )}
+    </div>
+  );
+}
+
+function applyAssetFilter(assets: (PageAsset & { pageNumber: number })[], filter: AssetFilterState): (PageAsset & { pageNumber: number })[] {
+  let result = assets;
+  if (filter.continent) result = result.filter(a => a.geo?.continent === filter.continent);
+  if (filter.country) result = result.filter(a => a.geo?.country === filter.country);
+  if (filter.region) result = result.filter(a => a.geo?.region === filter.region);
+  if (filter.city) result = result.filter(a => a.geo?.city === filter.city);
+  if (filter.author) result = result.filter(a => a.author === filter.author);
+  if (filter.category) result = result.filter(a => a.category === filter.category);
+  return result;
 }
 
 /* ───────── Settings Tabs ───────── */
@@ -621,6 +783,7 @@ export default function Page() {
   const [thumbnailsBusy, setThumbnailsBusy] = useState(false);
   const [viewMode, setViewMode] = useState<"grid" | "map" | "timeline">("grid");
   const [selectedAsset, setSelectedAsset] = useState<(PageAsset & { pageNumber: number }) | null>(null);
+  const [assetFilter, setAssetFilter] = useState<{ continent?: string; country?: string; region?: string; city?: string; author?: string; category?: string }>({});
 
   /* ── Debug ── */
   const [debugLogOpen, setDebugLogOpen] = useState(false);
@@ -990,7 +1153,7 @@ export default function Page() {
     log("Starting image detection with Gemini...");
 
     try {
-      const allResults: Map<number, Array<{ x: number; y: number; width: number; height: number; category?: string; title?: string; description?: string; metadata?: Record<string, string>; geo?: { lat: number; lng: number; placeName: string } | null; dateInfo?: { date?: string; era?: string; label: string } | null }>> = new Map();
+      const allResults: Map<number, Array<{ x: number; y: number; width: number; height: number; category?: string; title?: string; description?: string; author?: string; metadata?: Record<string, string>; geo?: { lat: number; lng: number; placeName: string; continent?: string; country?: string; region?: string; city?: string } | null; dateInfo?: { date?: string; era?: string; label: string } | null }>> = new Map();
 
       // Detect images on pages in parallel batches of 3
       log("=== Detecting images on all pages (parallel) ===");
@@ -1051,7 +1214,7 @@ export default function Page() {
             canvas.toBlob((bb) => (bb ? resolve(bb) : reject(new Error("toBlob returned null"))), "image/png");
           });
           const assetId = `p${page.pageNumber}-img${String(i + 1).padStart(2, "0")}`;
-          croppedAssets.push({ assetId, pngBlob, bbox, title: b.title, description: b.description, category: b.category, metadata: b.metadata, geo: b.geo, dateInfo: b.dateInfo });
+          croppedAssets.push({ assetId, pngBlob, bbox, title: b.title, description: b.description, category: b.category, author: b.author, metadata: b.metadata, geo: b.geo, dateInfo: b.dateInfo });
         }
 
         // Upload all assets from this page in parallel (batches of 4)
@@ -1065,7 +1228,7 @@ export default function Page() {
               handleUploadUrl: "/api/blob"
             });
 
-            const metadata = { assetId: asset.assetId, pageNumber: page.pageNumber, url: uploaded.url, bbox: asset.bbox, title: asset.title, description: asset.description, category: asset.category, metadata: asset.metadata, geo: asset.geo, dateInfo: asset.dateInfo };
+            const metadata = { assetId: asset.assetId, pageNumber: page.pageNumber, url: uploaded.url, bbox: asset.bbox, title: asset.title, description: asset.description, category: asset.category, author: asset.author, metadata: asset.metadata, geo: asset.geo, dateInfo: asset.dateInfo };
             await upload(`projects/${projectId}/assets/p${page.pageNumber}/${asset.assetId}.meta.txt`,
               new File([JSON.stringify(metadata)], `${asset.assetId}.meta.txt`, { type: "text/plain" }), {
               access: "public",
@@ -1669,10 +1832,13 @@ export default function Page() {
                       </button>
                     </div>
 
+                    {/* FILTER BAR */}
+                    <AssetFilterBar assets={allAssets} filter={assetFilter} onChange={setAssetFilter} />
+
                     {/* GRID VIEW */}
                     {viewMode === "grid" && (
                       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(260px, 1fr))", gap: 16 }}>
-                        {allAssets.map((asset) => (
+                        {applyAssetFilter(allAssets, assetFilter).map((asset) => (
                           <div key={asset.assetId} onClick={() => setSelectedAsset(asset)} style={{
                             background: "#f8f6f3", borderRadius: 10, border: "1px solid #e5e0d5",
                             overflow: "hidden", position: "relative", cursor: "pointer",
@@ -1738,6 +1904,7 @@ export default function Page() {
                               )}
                               <div style={{ fontSize: 11, color: "#a89e8c", marginTop: 6 }}>
                                 Page {asset.pageNumber} • {asset.assetId}
+                                {asset.author && <> • ✍️ {asset.author}</>}
                                 {asset.geo?.placeName && <> • 📍 {asset.geo.placeName}</>}
                                 {asset.dateInfo?.label && <> • 📅 {asset.dateInfo.label}</>}
                               </div>
@@ -1748,10 +1915,10 @@ export default function Page() {
                     )}
 
                     {/* MAP VIEW */}
-                    {viewMode === "map" && <MapView assets={allAssets} onSelect={setSelectedAsset} />}
+                    {viewMode === "map" && <MapView assets={applyAssetFilter(allAssets, assetFilter)} onSelect={setSelectedAsset} />}
 
                     {/* TIMELINE VIEW */}
-                    {viewMode === "timeline" && <TimelineView assets={allAssets} onSelect={setSelectedAsset} />}
+                    {viewMode === "timeline" && <TimelineView assets={applyAssetFilter(allAssets, assetFilter)} onSelect={setSelectedAsset} />}
                   </>
                 )}
               </div>

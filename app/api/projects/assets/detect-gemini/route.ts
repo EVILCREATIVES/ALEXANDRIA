@@ -29,8 +29,9 @@ interface DetectedBox {
   category?: string;
   title?: string;
   description?: string;
+  author?: string;
   metadata?: Record<string, string>;
-  geo?: { lat: number; lng: number; placeName: string } | null;
+  geo?: { lat: number; lng: number; placeName: string; continent?: string; country?: string; region?: string; city?: string } | null;
   dateInfo?: { date?: string; era?: string; label: string } | null;
 }
 
@@ -70,6 +71,10 @@ const analysisSchema: Schema = {
         type: SchemaType.STRING,
         description: "Content-appropriate category determined by analyzing the image (e.g. portrait, landscape, character, vehicle, diagram, map, logo, architectural, still-life, fashion, wildlife, abstract, etc.)",
       },
+      author: {
+        type: SchemaType.STRING,
+        description: "Author, artist, photographer, or creator of this image. Infer from signatures, credits, captions, artistic style, or contextual clues. Return empty string if unknown.",
+      },
       metadata: {
         type: SchemaType.ARRAY,
         description: "Dynamic content-specific metadata as key-value pairs. Keys depend on what is relevant to this image. Examples: author, year, style, medium, camera, lens, technique, period, material, culture, movement.",
@@ -91,8 +96,12 @@ const analysisSchema: Schema = {
           lat: { type: SchemaType.NUMBER, description: "Latitude" },
           lng: { type: SchemaType.NUMBER, description: "Longitude" },
           placeName: { type: SchemaType.STRING, description: "Human-readable place name" },
+          continent: { type: SchemaType.STRING, description: "Continent (e.g. 'Europe', 'Asia', 'North America', 'South America', 'Africa', 'Oceania', 'Antarctica')" },
+          country: { type: SchemaType.STRING, description: "Country name (e.g. 'Italy', 'Japan', 'United States')" },
+          region: { type: SchemaType.STRING, description: "Region, state, or province (e.g. 'Tuscany', 'Kanto', 'California')" },
+          city: { type: SchemaType.STRING, description: "City or town name (e.g. 'Florence', 'Tokyo', 'San Francisco')" },
         },
-        required: ["lat", "lng", "placeName"],
+        required: ["lat", "lng", "placeName", "continent", "country"],
       },
       dateInfo: {
         type: SchemaType.OBJECT,
@@ -111,11 +120,11 @@ const analysisSchema: Schema = {
         items: { type: SchemaType.INTEGER },
       },
     },
-    required: ["title", "description", "category", "geo", "dateInfo", "box_2d"],
+    required: ["title", "description", "category", "author", "geo", "dateInfo", "box_2d"],
   },
 };
 
-const DEFAULT_PROMPT = `Detect every image on this page. For each image found, provide its title, description, category, bounding box, relevant metadata, geographic location, and time period.
+const DEFAULT_PROMPT = `Detect every image on this page. For each image found, provide its title, description, category, author, bounding box, relevant metadata, geographic location (with hierarchy), and time period.
 
 What counts as an image:
 - Illustrations, character art, portraits
@@ -143,6 +152,14 @@ Extract any content-specific metadata visible in or inferable from the image:
 - For any image: period, culture, material, technique — whatever is genuinely relevant
 Only include metadata keys that are clearly supported by visual evidence. Do not guess.
 
+Author:
+Identify the author, artist, photographer, or creator of each image. Use ALL available clues:
+- Signatures, monograms, watermarks visible in the image
+- Credit lines, captions, attribution text on the page
+- Recognizable artistic style (e.g. "Hokusai" ukiyo-e style, "Ansel Adams" landscape photography)
+- Known works (e.g. Mona Lisa → Leonardo da Vinci)
+Return an empty string only if there are absolutely no clues to the creator.
+
 Location (geo):
 You MUST determine the geographic location for every image. Use ALL available clues:
 - Visible text, captions, labels, place names on the page
@@ -150,7 +167,9 @@ You MUST determine the geographic location for every image. Use ALL available cl
 - Vegetation, landscape, climate indicators
 - Language/script visible, cultural artifacts
 - Subject matter context (e.g. "Samurai" → Japan, "Colosseum" → Rome)
-Use city/region center coordinates when exact location is unclear. Only return null for pure abstract art or generic logos.
+Use city/region center coordinates when exact location is unclear.
+You MUST also provide the location hierarchy: continent, country, region (state/province), and city.
+Only return null for pure abstract art or generic logos.
 
 Time Period (dateInfo):
 You MUST determine the time period for every image. Use ALL available clues:
@@ -282,8 +301,9 @@ async function detectVisualElements(
         title: string;
         description: string;
         category?: string;
+        author?: string;
         metadata?: Array<{ key: string; value: string }> | null;
-        geo?: { lat: number; lng: number; placeName: string } | null;
+        geo?: { lat: number; lng: number; placeName: string; continent?: string; country?: string; region?: string; city?: string } | null;
         dateInfo?: { date?: string; era?: string; label: string } | null;
         box_2d: number[];
       }>;
@@ -364,6 +384,7 @@ async function detectVisualElements(
             title: el.title,
             description: el.description,
             category: el.category,
+            author: el.author || undefined,
             ...(Object.keys(meta).length > 0 ? { metadata: meta } : {}),
             geo: el.geo || null,
             dateInfo: el.dateInfo || null,

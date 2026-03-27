@@ -41,8 +41,9 @@ export type PageAsset = {
   title?: string;       // Short descriptive title from detection
   description?: string; // Brief explanation of what element depicts
   category?: string;    // AI-assigned category based on content analysis
+  author?: string;      // Author, artist, photographer, or creator
   metadata?: Record<string, string>; // Dynamic content-specific metadata (camera, author, style, medium, etc.)
-  geo?: { lat: number; lng: number; placeName?: string };
+  geo?: { lat: number; lng: number; placeName?: string; continent?: string; country?: string; region?: string; city?: string };
   dateInfo?: { date?: string; era?: string; label?: string };
   _enriched?: boolean; // Flag: enrichment was attempted (even if Gemini returned null)
 };
