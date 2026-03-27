@@ -42,6 +42,7 @@ type Manifest = {
   createdAt: string;
   status: "empty" | "uploaded" | "processed";
   sourcePdf?: { url: string; filename: string };
+  sources?: Array<{ sourceId: string; url: string; filename: string; uploadedAt: string }>;
   extractedText?: { url: string };
   formattedText?: { url: string };
   docAiJson?: { url: string };
@@ -742,8 +743,8 @@ function SettingsTabs({
   value,
   onChange
 }: {
-  value: "ai" | "detection" | "debugLog" | "cloudState";
-  onChange: (v: "ai" | "detection" | "debugLog" | "cloudState") => void;
+  value: "ai" | "detection" | "tools" | "debugLog" | "cloudState";
+  onChange: (v: "ai" | "detection" | "tools" | "debugLog" | "cloudState") => void;
 }) {
   const tabStyle = (active: boolean): React.CSSProperties => ({
     border: "1px solid #000",
@@ -759,6 +760,7 @@ function SettingsTabs({
     <div style={{ display: "flex", gap: 8, alignItems: "center", flexWrap: "wrap", minWidth: 0, flex: 1, overflow: "hidden" }}>
       <button type="button" onClick={() => onChange("ai")} style={tabStyle(value === "ai")}>AI Rules</button>
       <button type="button" onClick={() => onChange("detection")} style={tabStyle(value === "detection")}>Detection</button>
+      <button type="button" onClick={() => onChange("tools")} style={tabStyle(value === "tools")}>Tools</button>
       <div style={{ width: 1, height: 20, background: "#ccc" }} />
       <button type="button" onClick={() => onChange("debugLog")} style={tabStyle(value === "debugLog")}>Debug Log</button>
       <button type="button" onClick={() => onChange("cloudState")} style={tabStyle(value === "cloudState")}>Cloud State</button>
@@ -790,9 +792,12 @@ export default function Page() {
   const [startupProjectId, setStartupProjectId] = useState("");
 
   const [settingsOpen, setSettingsOpen] = useState(false);
-  const [settingsTab, setSettingsTab] = useState<"ai" | "detection" | "debugLog" | "cloudState">("ai");
+  const [settingsTab, setSettingsTab] = useState<"ai" | "detection" | "tools" | "debugLog" | "cloudState">("ai");
   const [settingsBusy, setSettingsBusy] = useState(false);
   const [settingsError, setSettingsError] = useState("");
+
+  /* ── Sources panel ── */
+  const [sourcesOpen, setSourcesOpen] = useState(false);
 
   /* ── Settings drafts ── */
   const [aiRulesDraft, setAiRulesDraft] = useState("");
@@ -1057,24 +1062,35 @@ export default function Page() {
     setPipelineResumeStep("");
     setPipelineStep("");
     setPipelineError("");
-    setManifest(null);
 
     try {
-      const p = await createProject();
-      const blob = await upload(`projects/${p.projectId}/source/source.pdf`, file, {
+      // If no project yet, create one
+      let pid = projectId;
+      let mUrl = manifestUrl;
+      if (!pid) {
+        const p = await createProject();
+        pid = p.projectId;
+        mUrl = p.manifestUrl;
+      } else {
+        setManifest(null);
+      }
+
+      const sourceId = `src-${Date.now()}`;
+      const blob = await upload(`projects/${pid}/source/${sourceId}.pdf`, file, {
         access: "public",
         handleUploadUrl: "/api/blob"
       });
       const r = await fetch("/api/projects/record-source", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectId: p.projectId, manifestUrl: p.manifestUrl, sourcePdfUrl: blob.url, filename: file.name })
+        body: JSON.stringify({ projectId: pid, manifestUrl: mUrl, sourcePdfUrl: blob.url, filename: file.name, sourceId })
       });
       if (!r.ok) throw new Error(`Record source failed: ${await readErrorText(r)}`);
       const j = (await r.json()) as { ok: boolean; manifestUrl?: string; error?: string };
       if (!j.ok || !j.manifestUrl) throw new Error(j.error || "Record source failed");
       setManifestUrl(j.manifestUrl);
-      setUrlParams(p.projectId, j.manifestUrl);
+      manifestUrlRef.current = j.manifestUrl;
+      setUrlParams(pid, j.manifestUrl);
       await loadManifest(j.manifestUrl);
       await refreshProjects();
     } finally {
@@ -1645,7 +1661,29 @@ export default function Page() {
     if (pipelineStep === "done") return 100;
     const idx = getPipelineCurrentStepIndex();
     if (idx < 0) return 0;
-    return Math.round((idx / (PIPELINE_STEPS.length - 1)) * 100);
+    const stepSegment = 100 / (PIPELINE_STEPS.length - 1); // weight per step
+    let base = idx * stepSegment;
+    // Add sub-progress within current step
+    if (pipelineStep === "rasterize" && rasterProgress.running && rasterProgress.totalPages > 0) {
+      base += (rasterProgress.currentPage / rasterProgress.totalPages) * stepSegment;
+    } else if (pipelineStep === "detect" && splitProgress.running && splitProgress.totalPages > 0) {
+      base += (splitProgress.page / splitProgress.totalPages) * stepSegment;
+    }
+    return Math.min(99, Math.round(base));
+  }
+
+  function getPipelineLabel(): string {
+    if (pipelineStep === "done") return "Complete!";
+    if (pipelineStep === "upload") return "Uploading source...";
+    if (pipelineStep === "rasterize") {
+      if (rasterProgress.running) return `Rasterizing page ${rasterProgress.currentPage} of ${rasterProgress.totalPages}`;
+      return "Rasterizing pages...";
+    }
+    if (pipelineStep === "detect") {
+      if (splitProgress.running) return `Detecting images — page ${splitProgress.page} of ${splitProgress.totalPages} (${splitProgress.assetsUploaded} extracted)`;
+      return "Detecting images...";
+    }
+    return busy || "Processing...";
   }
 
   async function openProject(p: ProjectRow) {
@@ -1762,25 +1800,26 @@ export default function Page() {
         borderBottom: "1px solid #2c2218"
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
-          <h1 style={{ fontSize: 20, fontWeight: 300, letterSpacing: 6, margin: 0 }}>ALEXANDRIA</h1>
+          <h1
+            onClick={() => { setProjectId(""); setManifestUrl(""); setManifest(null); clearUrlParams(); setStartupOpen(true); }}
+            style={{ fontSize: 20, fontWeight: 300, letterSpacing: 6, margin: 0, cursor: "pointer" }}
+          >ALEXANDRIA</h1>
           {manifest?.sourcePdf?.filename && (
             <span style={{ fontSize: 12, color: "#8a7e6b" }}>/ {manifest.sourcePdf.filename}</span>
           )}
         </div>
-        <div style={{ display: "flex", gap: 8 }}>
-          <button type="button" onClick={() => setSettingsOpen(true)}
-            style={{ padding: "6px 14px", fontSize: 12, background: "transparent", color: "#d4c5a9", border: "1px solid #4a3f30", borderRadius: 6, cursor: "pointer" }}>
-            Settings
-          </button>
-          <button type="button" onClick={() => setDebugLogOpen(!debugLogOpen)}
-            style={{ padding: "6px 14px", fontSize: 12, background: "transparent", color: "#d4c5a9", border: "1px solid #4a3f30", borderRadius: 6, cursor: "pointer" }}>
-            Log
-          </button>
-          <button type="button" onClick={() => { setProjectId(""); setManifestUrl(""); setManifest(null); clearUrlParams(); setStartupOpen(true); }}
-            style={{ padding: "6px 14px", fontSize: 12, background: "transparent", color: "#d4c5a9", border: "1px solid #4a3f30", borderRadius: 6, cursor: "pointer" }}>
-            Home
-          </button>
-        </div>
+        {projectId && (
+          <div style={{ display: "flex", gap: 8 }}>
+            <button type="button" onClick={() => setSourcesOpen(true)}
+              style={{ padding: "6px 14px", fontSize: 12, background: "transparent", color: "#d4c5a9", border: "1px solid #4a3f30", borderRadius: 6, cursor: "pointer" }}>
+              Sources {manifest?.sources?.length ? `(${manifest.sources.length})` : ""}
+            </button>
+            <button type="button" onClick={() => setSettingsOpen(true)}
+              style={{ padding: "6px 14px", fontSize: 12, background: "transparent", color: "#d4c5a9", border: "1px solid #4a3f30", borderRadius: 6, cursor: "pointer" }}>
+              Settings
+            </button>
+          </div>
+        )}
       </header>
 
       {/* ═══════ ERROR BAR ═══════ */}
@@ -1791,17 +1830,42 @@ export default function Page() {
         </div>
       )}
 
-      {/* ═══════ BUSY BAR ═══════ */}
-      {busy && (
-        <div style={{ padding: "10px 24px", background: "#d4c5a9", color: "#1a1510", fontSize: 13, fontWeight: 500 }}>
-          ⏳ {busy}
-        </div>
-      )}
+      {/* ═══════ FULL-SCREEN PROGRESS OVERLAY ═══════ */}
+      {(pipelineRunning || (busy && pipelineStep)) && (
+        <div style={{
+          position: "fixed", inset: 0, zIndex: 8500,
+          background: "rgba(26,21,16,0.92)", backdropFilter: "blur(8px)",
+          display: "flex", alignItems: "center", justifyContent: "center", flexDirection: "column"
+        }}>
+          {/* Animated spinner */}
+          <div style={{
+            width: 120, height: 120, borderRadius: "50%",
+            border: "4px solid #2c2218", borderTopColor: "#d4c5a9",
+            animation: "spin 1s linear infinite", marginBottom: 32
+          }} />
+          <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
 
-      {/* ═══════ PIPELINE PROGRESS ═══════ */}
-      {pipelineRunning && (
-        <div style={{ padding: "12px 24px", background: "#2c2218", color: "#d4c5a9" }}>
-          <div style={{ display: "flex", gap: 16, alignItems: "center", marginBottom: 8 }}>
+          {/* Percentage */}
+          <div style={{ fontSize: 64, fontWeight: 200, color: "#d4c5a9", letterSpacing: 4, marginBottom: 8 }}>
+            {getPipelinePercent()}%
+          </div>
+
+          {/* Step label */}
+          <div style={{ fontSize: 16, color: "#8a7e6b", marginBottom: 24, letterSpacing: 1 }}>
+            {getPipelineLabel()}
+          </div>
+
+          {/* Progress bar */}
+          <div style={{ width: 400, maxWidth: "80vw", height: 6, background: "#2c2218", borderRadius: 3, overflow: "hidden" }}>
+            <div style={{
+              height: "100%", background: "linear-gradient(90deg, #d4c5a9, #e8d5b0)",
+              width: `${getPipelinePercent()}%`, transition: "width 0.5s ease",
+              borderRadius: 3
+            }} />
+          </div>
+
+          {/* Step indicators */}
+          <div style={{ display: "flex", gap: 24, marginTop: 24 }}>
             {PIPELINE_STEPS.map((s, i) => {
               const currentIdx = getPipelineCurrentStepIndex();
               const isDone = i < currentIdx || pipelineStep === "done";
@@ -1816,39 +1880,17 @@ export default function Page() {
               );
             })}
           </div>
-          <div style={{ height: 4, background: "#4a3f30", borderRadius: 2, overflow: "hidden" }}>
-            <div style={{ height: "100%", background: "#d4c5a9", width: `${getPipelinePercent()}%`, transition: "width 0.3s" }} />
-          </div>
-          {rasterProgress.running && (
-            <div style={{ fontSize: 12, color: "#8a7e6b", marginTop: 6 }}>
-              Rasterizing page {rasterProgress.currentPage}/{rasterProgress.totalPages} ({rasterProgress.uploaded} uploaded)
-            </div>
-          )}
-          {splitProgress.running && (
-            <div style={{ fontSize: 12, color: "#8a7e6b", marginTop: 6 }}>
-              Detecting page {splitProgress.page}/{splitProgress.totalPages} ({splitProgress.assetsUploaded} assets extracted)
-            </div>
-          )}
+
           {pipelineError && (
-            <div style={{ fontSize: 12, color: "#ef4444", marginTop: 6 }}>Error: {pipelineError}</div>
+            <div style={{ fontSize: 13, color: "#ef4444", marginTop: 16, maxWidth: 500, textAlign: "center" }}>Error: {pipelineError}</div>
           )}
         </div>
       )}
 
-      {/* Resume bar */}
-      {pipelineResumeStep && !pipelineRunning && (
-        <div style={{ padding: "10px 24px", background: "#422006", color: "#fbbf24", fontSize: 13, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-          <span>Pipeline paused. Resume from: {PIPELINE_STEPS.find(s => s.key === pipelineResumeStep)?.label}</span>
-          <div style={{ display: "flex", gap: 8 }}>
-            <button type="button" onClick={() => runAutoPipeline(pipelineResumeStep as PipelineStep)}
-              style={{ padding: "4px 12px", fontSize: 12, background: "#fbbf24", color: "#422006", border: "none", borderRadius: 4, cursor: "pointer", fontWeight: 600 }}>
-              Resume
-            </button>
-            <button type="button" onClick={() => { setPipelineResumeStep(""); setPipelineError(""); localStorage.removeItem("alexandria-pipeline-checkpoint"); }}
-              style={{ padding: "4px 12px", fontSize: 12, background: "transparent", color: "#fbbf24", border: "1px solid #fbbf24", borderRadius: 4, cursor: "pointer" }}>
-              Dismiss
-            </button>
-          </div>
+      {/* ═══════ BUSY BAR (non-pipeline) ═══════ */}
+      {busy && !pipelineStep && (
+        <div style={{ padding: "10px 24px", background: "#d4c5a9", color: "#1a1510", fontSize: 13, fontWeight: 500 }}>
+          ⏳ {busy}
         </div>
       )}
 
@@ -1856,110 +1898,35 @@ export default function Page() {
       {/* ═══════ MAIN CONTENT ═══════ */}
       <div style={{ padding: "20px 24px", maxWidth: 1400, margin: "0 auto" }}>
 
-        {/* ── CONTROLS ROW ── */}
+        {/* ── UPLOAD / ADD SOURCE ── */}
         {projectId && (
-          <div style={{
-            display: "flex", gap: 8, flexWrap: "wrap", marginBottom: 20,
-            padding: "16px 20px", background: "#fff", borderRadius: 12,
-            border: "1px solid #e5e0d5", boxShadow: "0 1px 3px rgba(0,0,0,0.04)"
-          }}>
+          <div style={{ display: "flex", alignItems: "center", gap: 12, marginBottom: 20 }}>
             <button type="button" onClick={() => fileRef.current?.click()} disabled={!!busy}
-              style={{ padding: "8px 16px", fontSize: 13, background: "#1a1510", color: "#d4c5a9", border: "none", borderRadius: 6, cursor: "pointer", fontWeight: 500 }}>
-              Upload Source
-            </button>
-            <button type="button" onClick={() => rasterizeToPngs()} disabled={!!busy}
-              style={{ padding: "8px 16px", fontSize: 13, background: "#fff", color: "#1a1510", border: "1px solid #ccc", borderRadius: 6, cursor: "pointer" }}>
-              Rasterize Pages
-            </button>
-            <button type="button" onClick={() => splitImages()} disabled={!!busy}
-              style={{ padding: "8px 16px", fontSize: 13, background: "#fff", color: "#1a1510", border: "1px solid #ccc", borderRadius: 6, cursor: "pointer" }}>
-              Detect Images
-            </button>
-            <div style={{ width: 1, height: 28, background: "#e5e0d5", alignSelf: "center" }} />
-            <button type="button" onClick={() => runAutoPipeline()} disabled={!!busy || pipelineRunning}
-              style={{ padding: "8px 16px", fontSize: 13, background: "#065f46", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", fontWeight: 500 }}>
-              ▶ Run Full Pipeline
-            </button>
-            <div style={{ flex: 1 }} />
-            <button type="button" onClick={() => generateThumbnails()} disabled={!!busy || thumbnailsBusy}
-              style={{ padding: "8px 16px", fontSize: 13, background: "#fff", color: "#1a1510", border: "1px solid #ccc", borderRadius: 6, cursor: "pointer" }}>
-              {thumbnailsBusy ? "Generating..." : "Gen Thumbnails"}
-            </button>
-            <button type="button" onClick={() => rebuildAssets()} disabled={!!busy}
-              style={{ padding: "8px 16px", fontSize: 13, background: "#fff", color: "#1a1510", border: "1px solid #ccc", borderRadius: 6, cursor: "pointer" }}>
-              Rebuild Index
-            </button>
-            <button type="button" onClick={() => restoreFromBlob()} disabled={!!busy}
-              style={{ padding: "8px 16px", fontSize: 13, background: "#fff", color: "#1a1510", border: "1px solid #ccc", borderRadius: 6, cursor: "pointer" }}>
-              Restore
-            </button>
-            <button type="button" onClick={() => deleteAllAssets()} disabled={!!busy}
-              style={{ padding: "8px 16px", fontSize: 13, background: "#fff", color: "#dc2626", border: "1px solid #fca5a5", borderRadius: 6, cursor: "pointer" }}>
-              Delete All Assets
-            </button>
-          </div>
-        )}
-
-        {/* ── STATS ROW ── */}
-        {projectId && manifest && (
-          <div style={{ display: "flex", gap: 16, marginBottom: 20 }}>
-            {[
-              { label: "Pages", value: totalPages },
-              { label: "Images Extracted", value: totalAssets },
-              { label: "Status", value: manifest.status },
-            ].map((s) => (
-              <div key={s.label} style={{
-                flex: 1, padding: "16px 20px", background: "#fff", borderRadius: 12,
-                border: "1px solid #e5e0d5"
+              style={{
+                padding: "12px 28px", fontSize: 14, fontWeight: 600,
+                background: "#1a1510", color: "#d4c5a9", border: "none", borderRadius: 8,
+                cursor: busy ? "not-allowed" : "pointer", letterSpacing: 1
               }}>
-                <div style={{ fontSize: 12, color: "#8a7e6b", marginBottom: 4, letterSpacing: 1, textTransform: "uppercase" }}>{s.label}</div>
-                <div style={{ fontSize: 24, fontWeight: 600, color: "#1a1510" }}>{s.value}</div>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {projectId && (formattedTextUrl || extractedTextUrl) && (
-          <div style={{ marginBottom: 20, background: "#fff", borderRadius: 12, border: "1px solid #e5e0d5", padding: "14px 20px" }}>
-            <div style={{ fontSize: 14, fontWeight: 600, color: "#1a1510", marginBottom: 8 }}>Generated Outputs</div>
-            <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(220px, 1fr))", gap: 8, fontSize: 13 }}>
-              <a href={formattedTextUrl || "#"} target="_blank" rel="noreferrer" style={{ color: formattedTextUrl ? "#065f46" : "#8a7e6b", pointerEvents: formattedTextUrl ? "auto" : "none" }}>
-                {formattedTextUrl ? "Open Formatted Text" : "Formatted Text not generated"}
-              </a>
-              <a href={extractedTextUrl || "#"} target="_blank" rel="noreferrer" style={{ color: extractedTextUrl ? "#065f46" : "#8a7e6b", pointerEvents: extractedTextUrl ? "auto" : "none" }}>
-                {extractedTextUrl ? "Open Extracted Text" : "Extracted Text not generated"}
-              </a>
-            </div>
-          </div>
-        )}
-
-        {/* ── RASTERIZE PROGRESS ── */}
-        {rasterProgress.running && !pipelineRunning && (
-          <div style={{ marginBottom: 16, padding: "12px 20px", background: "#fffbeb", border: "1px solid #fde68a", borderRadius: 8, fontSize: 13 }}>
-            Rasterizing page {rasterProgress.currentPage}/{rasterProgress.totalPages} — {rasterProgress.uploaded} uploaded
-          </div>
-        )}
-        {splitProgress.running && !pipelineRunning && (
-          <div style={{ marginBottom: 16, padding: "12px 20px", background: "#eff6ff", border: "1px solid #bfdbfe", borderRadius: 8, fontSize: 13 }}>
-            Detecting page {splitProgress.page}/{splitProgress.totalPages} — {splitProgress.assetsUploaded} assets extracted
-          </div>
-        )}
-
-        {/* ═══════ PAGES PREVIEW ═══════ */}
-        {projectId && totalPages > 0 && (
-          <div style={{ marginBottom: 20, background: "#fff", borderRadius: 12, border: "1px solid #e5e0d5", overflow: "hidden" }}>
-            <button type="button" onClick={() => setPagesPreviewOpen(!pagesPreviewOpen)}
-              style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 20px", background: "none", border: "none", cursor: "pointer", fontSize: 14, fontWeight: 600, color: "#1a1510" }}>
-              <span>📄 Source Pages ({totalPages})</span>
-              <Chevron up={pagesPreviewOpen} />
+              {totalAssets > 0 || (manifest?.sources?.length || 0) > 0 ? "＋ ADD SOURCE" : "UPLOAD SOURCE"}
             </button>
-            {pagesPreviewOpen && (
-              <div style={{ padding: "0 20px 20px", display: "flex", gap: 8, overflowX: "auto" }}>
-                {manifest?.pages?.map((p) => (
-                  <img key={p.pageNumber} src={p.url} alt={`Page ${p.pageNumber}`}
-                    style={{ height: 160, borderRadius: 6, border: "1px solid #e5e0d5", flexShrink: 0 }} />
-                ))}
+            {pipelineResumeStep && !pipelineRunning && (
+              <div style={{ display: "flex", alignItems: "center", gap: 8, padding: "8px 16px", background: "#422006", color: "#fbbf24", borderRadius: 8, fontSize: 13 }}>
+                <span>Pipeline paused — {PIPELINE_STEPS.find(s => s.key === pipelineResumeStep)?.label}</span>
+                <button type="button" onClick={() => runAutoPipeline(pipelineResumeStep as PipelineStep)}
+                  style={{ padding: "4px 12px", fontSize: 12, background: "#fbbf24", color: "#422006", border: "none", borderRadius: 4, cursor: "pointer", fontWeight: 600 }}>
+                  Resume
+                </button>
+                <button type="button" onClick={() => { setPipelineResumeStep(""); setPipelineError(""); localStorage.removeItem("alexandria-pipeline-checkpoint"); }}
+                  style={{ padding: "4px 10px", fontSize: 12, background: "transparent", color: "#fbbf24", border: "1px solid #fbbf24", borderRadius: 4, cursor: "pointer" }}>
+                  ✕
+                </button>
               </div>
+            )}
+            <div style={{ flex: 1 }} />
+            {totalAssets > 0 && (
+              <span style={{ fontSize: 13, color: "#8a7e6b" }}>
+                {totalPages} pages • {totalAssets} images
+              </span>
             )}
           </div>
         )}
@@ -2093,62 +2060,6 @@ export default function Page() {
           </div>
         )}
 
-        {/* ═══════ PROJECTS LIST ═══════ */}
-        {projectId && (
-          <div style={{ marginBottom: 20, background: "#fff", borderRadius: 12, border: "1px solid #e5e0d5", overflow: "hidden" }}>
-            <button type="button" onClick={() => setProjectsOpen(!projectsOpen)}
-              style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 20px", background: "none", border: "none", cursor: "pointer", fontSize: 14, fontWeight: 600, color: "#1a1510" }}>
-              <span>📁 All Archives ({projects.length})</span>
-              <span style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                {projectsBusy && <span style={{ fontSize: 12, color: "#8a7e6b" }}>Loading...</span>}
-                <button type="button" onClick={(e) => { e.stopPropagation(); refreshProjects(); }}
-                  style={{ background: "none", border: "none", cursor: "pointer", color: "#1a1510" }}><Refresh /></button>
-                <Chevron up={projectsOpen} />
-              </span>
-            </button>
-            {projectsOpen && (
-              <div style={{ padding: "0 20px 20px" }}>
-                {projects.length === 0 ? (
-                  <p style={{ color: "#8a7e6b", fontSize: 14 }}>No archives yet.</p>
-                ) : (
-                  <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 13 }}>
-                    <thead>
-                      <tr style={{ borderBottom: "1px solid #e5e0d5" }}>
-                        <th style={{ textAlign: "left", padding: "8px 4px", color: "#8a7e6b", fontWeight: 500 }}>File</th>
-                        <th style={{ textAlign: "left", padding: "8px 4px", color: "#8a7e6b", fontWeight: 500 }}>Pages</th>
-                        <th style={{ textAlign: "left", padding: "8px 4px", color: "#8a7e6b", fontWeight: 500 }}>Status</th>
-                        <th style={{ textAlign: "right", padding: "8px 4px" }}></th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {projects.map((p) => (
-                        <tr key={p.projectId} style={{
-                          borderBottom: "1px solid #f0ede6",
-                          background: p.projectId === projectId ? "#f8f6f3" : "transparent"
-                        }}>
-                          <td style={{ padding: "8px 4px" }}>
-                            <button type="button" onClick={() => openProject(p)}
-                              style={{ background: "none", border: "none", cursor: "pointer", color: "#1a1510", fontWeight: p.projectId === projectId ? 700 : 400, textDecoration: "underline", fontSize: 13 }}>
-                              {p.filename || p.projectId}
-                            </button>
-                          </td>
-                          <td style={{ padding: "8px 4px" }}>{p.pagesCount}</td>
-                          <td style={{ padding: "8px 4px" }}>{p.status}</td>
-                          <td style={{ padding: "8px 4px", textAlign: "right" }}>
-                            <button type="button" onClick={() => deleteProject(p.projectId)}
-                              style={{ background: "none", border: "none", cursor: "pointer", color: "#dc2626" }}>
-                              <Trash />
-                            </button>
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                )}
-              </div>
-            )}
-          </div>
-        )}
       </div>
 
 
@@ -2234,6 +2145,59 @@ export default function Page() {
                 </div>
               )}
 
+              {settingsTab === "tools" && (
+                <div>
+                  <label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 16 }}>Pipeline & Maintenance Tools</label>
+                  <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      <button type="button" onClick={() => { setSettingsOpen(false); rasterizeToPngs(); }} disabled={!!busy}
+                        style={{ padding: "8px 16px", fontSize: 13, background: "#fff", color: "#1a1510", border: "1px solid #ccc", borderRadius: 6, cursor: "pointer" }}>
+                        Rasterize Pages
+                      </button>
+                      <button type="button" onClick={() => { setSettingsOpen(false); splitImages(); }} disabled={!!busy}
+                        style={{ padding: "8px 16px", fontSize: 13, background: "#fff", color: "#1a1510", border: "1px solid #ccc", borderRadius: 6, cursor: "pointer" }}>
+                        Detect Images
+                      </button>
+                      <button type="button" onClick={() => { setSettingsOpen(false); runAutoPipeline(); }} disabled={!!busy || pipelineRunning}
+                        style={{ padding: "8px 16px", fontSize: 13, background: "#065f46", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", fontWeight: 500 }}>
+                        ▶ Run Full Pipeline
+                      </button>
+                    </div>
+                    <div style={{ width: "100%", height: 1, background: "#e5e0d5", margin: "8px 0" }} />
+                    <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+                      <button type="button" onClick={() => { setSettingsOpen(false); generateThumbnails(); }} disabled={!!busy || thumbnailsBusy}
+                        style={{ padding: "8px 16px", fontSize: 13, background: "#fff", color: "#1a1510", border: "1px solid #ccc", borderRadius: 6, cursor: "pointer" }}>
+                        {thumbnailsBusy ? "Generating..." : "Gen Thumbnails"}
+                      </button>
+                      <button type="button" onClick={() => { setSettingsOpen(false); rebuildAssets(); }} disabled={!!busy}
+                        style={{ padding: "8px 16px", fontSize: 13, background: "#fff", color: "#1a1510", border: "1px solid #ccc", borderRadius: 6, cursor: "pointer" }}>
+                        Rebuild Index
+                      </button>
+                      <button type="button" onClick={() => { setSettingsOpen(false); restoreFromBlob(); }} disabled={!!busy}
+                        style={{ padding: "8px 16px", fontSize: 13, background: "#fff", color: "#1a1510", border: "1px solid #ccc", borderRadius: 6, cursor: "pointer" }}>
+                        Restore
+                      </button>
+                    </div>
+                    <div style={{ width: "100%", height: 1, background: "#e5e0d5", margin: "8px 0" }} />
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button type="button" onClick={() => { setSettingsOpen(false); deleteAllAssets(); }} disabled={!!busy}
+                        style={{ padding: "8px 16px", fontSize: 13, background: "#fff", color: "#dc2626", border: "1px solid #fca5a5", borderRadius: 6, cursor: "pointer" }}>
+                        Delete All Assets
+                      </button>
+                    </div>
+                  </div>
+                  {(formattedTextUrl || extractedTextUrl) && (
+                    <div style={{ marginTop: 24 }}>
+                      <label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 8 }}>Generated Outputs</label>
+                      <div style={{ display: "flex", gap: 12, fontSize: 13 }}>
+                        {formattedTextUrl && <a href={formattedTextUrl} target="_blank" rel="noreferrer" style={{ color: "#065f46" }}>Open Formatted Text</a>}
+                        {extractedTextUrl && <a href={extractedTextUrl} target="_blank" rel="noreferrer" style={{ color: "#065f46" }}>Open Extracted Text</a>}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {settingsTab === "cloudState" && (
                 <div>
                   <label style={{ fontSize: 13, fontWeight: 600, display: "block", marginBottom: 8 }}>Cloud State (Manifest JSON)</label>
@@ -2272,23 +2236,81 @@ export default function Page() {
         </div>
       )}
 
-      {/* ═══════ DEBUG LOG PANEL (floating) ═══════ */}
-      {debugLogOpen && !settingsOpen && (
-        <div style={{
-          position: "fixed", bottom: 16, right: 16, width: 480, maxHeight: 320,
-          background: "#1a1510", color: "#d4c5a9", borderRadius: 12,
-          boxShadow: "0 8px 32px rgba(0,0,0,0.3)", zIndex: 8000,
-          display: "flex", flexDirection: "column", overflow: "hidden"
-        }}>
-          <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 16px", borderBottom: "1px solid #2c2218" }}>
-            <span style={{ fontSize: 13, fontWeight: 600 }}>Debug Log</span>
-            <div style={{ display: "flex", gap: 8 }}>
-              <button type="button" onClick={() => setDebugLog([])} style={{ fontSize: 11, color: "#8a7e6b", background: "none", border: "none", cursor: "pointer" }}>Clear</button>
-              <button type="button" onClick={() => setDebugLogOpen(false)} style={{ background: "none", border: "none", cursor: "pointer", color: "#d4c5a9" }}><XIcon /></button>
+      {/* ═══════ SOURCES MODAL ═══════ */}
+      {sourcesOpen && (
+        <div style={{ position: "fixed", inset: 0, zIndex: 9000, display: "flex" }}>
+          <div style={{ position: "absolute", inset: 0, background: "rgba(0,0,0,0.5)" }} onClick={() => setSourcesOpen(false)} />
+          <div style={{
+            position: "relative", margin: "auto", width: "90%", maxWidth: 600, maxHeight: "70vh",
+            background: "#fff", borderRadius: 16, overflow: "hidden", display: "flex", flexDirection: "column"
+          }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "16px 24px", borderBottom: "1px solid #e5e0d5" }}>
+              <span style={{ fontSize: 16, fontWeight: 600 }}>Sources</span>
+              <button type="button" onClick={() => setSourcesOpen(false)}
+                style={{ background: "none", border: "none", cursor: "pointer", color: "#1a1510" }}><XIcon /></button>
             </div>
-          </div>
-          <div style={{ flex: 1, overflow: "auto", padding: "8px 16px", fontFamily: "monospace", fontSize: 11, whiteSpace: "pre-wrap" }}>
-            {debugLog.length === 0 ? "No log entries yet." : debugLog.join("\n")}
+            <div style={{ flex: 1, overflow: "auto", padding: 24 }}>
+              {(!manifest?.sources || manifest.sources.length === 0) ? (
+                <p style={{ color: "#8a7e6b", fontSize: 14 }}>No sources uploaded yet.</p>
+              ) : (
+                <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
+                  {manifest.sources.map((src) => (
+                    <div key={src.sourceId} style={{
+                      display: "flex", alignItems: "center", justifyContent: "space-between",
+                      padding: "12px 16px", background: "#f8f6f3", borderRadius: 8, border: "1px solid #e5e0d5"
+                    }}>
+                      <div>
+                        <div style={{ fontSize: 14, fontWeight: 600, color: "#1a1510" }}>{src.filename}</div>
+                        <div style={{ fontSize: 12, color: "#8a7e6b", marginTop: 2 }}>
+                          Uploaded {new Date(src.uploadedAt).toLocaleDateString()}
+                        </div>
+                      </div>
+                      <button type="button"
+                        onClick={async () => {
+                          if (!window.confirm(`Delete source "${src.filename}" and all its images? This cannot be undone.`)) return;
+                          setSourcesOpen(false);
+                          setBusy("Deleting source...");
+                          try {
+                            // Delete all assets, remove source from manifest
+                            const mUrl = manifestUrlRef.current || manifestUrl;
+                            const r = await fetch("/api/projects/assets/delete-all", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({ projectId, manifestUrl: mUrl })
+                            });
+                            const j = (await r.json()) as { ok: boolean; manifestUrl?: string; error?: string };
+                            if (!r.ok || !j.ok || !j.manifestUrl) throw new Error(j.error || "Delete failed");
+                            setManifestUrl(j.manifestUrl);
+                            manifestUrlRef.current = j.manifestUrl;
+                            setUrlParams(projectId, j.manifestUrl);
+                            await loadManifest(j.manifestUrl);
+                            await refreshProjects();
+                            log(`Deleted source: ${src.filename}`);
+                          } catch (e) {
+                            setLastError(e instanceof Error ? e.message : String(e));
+                          } finally {
+                            setBusy("");
+                          }
+                        }}
+                        style={{
+                          background: "none", border: "none", cursor: "pointer", color: "#dc2626",
+                          padding: "6px 10px", borderRadius: 4
+                        }}>
+                        <Trash />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+              <button type="button" onClick={() => { setSourcesOpen(false); fileRef.current?.click(); }}
+                style={{
+                  marginTop: 16, padding: "10px 20px", fontSize: 13, fontWeight: 600,
+                  background: "#1a1510", color: "#d4c5a9", border: "none", borderRadius: 6,
+                  cursor: "pointer", width: "100%"
+                }}>
+                ＋ Add Source
+              </button>
+            </div>
           </div>
         </div>
       )}

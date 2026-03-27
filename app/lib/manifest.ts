@@ -74,6 +74,7 @@ export type ProjectManifest = {
   displayName?: string;
 
   sourcePdf?: { url: string; filename: string };
+  sources?: Array<{ sourceId: string; url: string; filename: string; uploadedAt: string }>;
   extractedText?: { url: string };
 
   // Cached Gemini-formatted text

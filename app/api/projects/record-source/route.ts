@@ -9,6 +9,7 @@ type Body = {
   manifestUrl?: string;
   sourcePdfUrl?: string;
   filename?: string;
+  sourceId?: string;
 };
 
 export async function POST(req: Request): Promise<Response> {
@@ -23,6 +24,7 @@ export async function POST(req: Request): Promise<Response> {
   const manifestUrl = String(body.manifestUrl || "").trim();
   const sourcePdfUrl = String(body.sourcePdfUrl || "").trim();
   const filename = String(body.filename || "source.pdf").trim();
+  const sourceId = String(body.sourceId || `src-${Date.now()}`).trim();
 
   if (!projectId || !manifestUrl || !sourcePdfUrl) {
     return NextResponse.json({ ok: false, error: "Missing projectId, manifestUrl, or sourcePdfUrl" }, { status: 400 });
@@ -36,9 +38,13 @@ export async function POST(req: Request): Promise<Response> {
     manifest = newManifest(projectId);
   }
 
-  // Update manifest with source PDF
+  // Update manifest with source PDF (backward compat)
   manifest.sourcePdf = { url: sourcePdfUrl, filename };
   manifest.status = "uploaded";
+
+  // Add to sources array
+  if (!manifest.sources) manifest.sources = [];
+  manifest.sources.push({ sourceId, url: sourcePdfUrl, filename, uploadedAt: new Date().toISOString() });
 
   const newUrl = await saveManifest(manifest);
 
