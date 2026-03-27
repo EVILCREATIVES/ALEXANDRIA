@@ -1,1 +1,7 @@
-{}
+{
+  "functions": {
+    "app/api/projects/assets/detect-gemini/route.ts": {
+      "maxDuration": 300
+    }
+  }
+}

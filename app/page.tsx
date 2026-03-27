@@ -806,9 +806,12 @@ export default function Page() {
         body: JSON.stringify({ projectId, manifestUrl })
       });
       if (!res.ok) throw new Error(await readErrorText(res));
-      const data = (await res.json()) as { ok: boolean; enriched?: number; total?: number; manifestUrl?: string; error?: string };
+      const data = (await res.json()) as { ok: boolean; enriched?: number; total?: number; manifestUrl?: string; error?: string; errors?: string[] };
       if (!data.ok) throw new Error(data.error || "Enrichment failed");
       log(`Enrichment complete: ${data.enriched ?? 0}/${data.total ?? 0} assets enriched`);
+      if (data.errors && data.errors.length > 0) {
+        for (const err of data.errors) log(`  ⚠️ ${err}`);
+      }
       if (data.manifestUrl) {
         setManifestUrl(data.manifestUrl);
         manifestUrlRef.current = data.manifestUrl;
