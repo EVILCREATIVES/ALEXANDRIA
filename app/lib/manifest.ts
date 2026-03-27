@@ -44,6 +44,7 @@ export type PageAsset = {
   author?: string;      // Author, artist, photographer, or creator
   metadata?: Record<string, string>; // Dynamic content-specific metadata (camera, author, style, medium, etc.)
   geo?: { lat: number; lng: number; placeName?: string; continent?: string; country?: string; region?: string; city?: string };
+  geoPreserved?: { lat: number; lng: number; placeName?: string; continent?: string; country?: string; region?: string; city?: string };
   dateInfo?: { date?: string; era?: string; label?: string };
   _enriched?: boolean; // Flag: enrichment was attempted (even if Gemini returned null)
 };

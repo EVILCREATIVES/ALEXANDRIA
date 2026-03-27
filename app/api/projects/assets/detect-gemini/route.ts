@@ -32,6 +32,7 @@ interface DetectedBox {
   author?: string;
   metadata?: Record<string, string>;
   geo?: { lat: number; lng: number; placeName: string; continent?: string; country?: string; region?: string; city?: string } | null;
+  geoPreserved?: { lat: number; lng: number; placeName: string; continent?: string; country?: string; region?: string; city?: string } | null;
   dateInfo?: { date?: string; era?: string; label: string } | null;
 }
 
@@ -90,7 +91,7 @@ const analysisSchema: Schema = {
       },
       geo: {
         type: SchemaType.OBJECT,
-        description: "Geographic location of the image subject. Infer from visible landmarks, architecture, text, cultural markers, vegetation, or any contextual clue. Set null ONLY for pure abstract art, generic icons, or logos with zero geographic context.",
+        description: "Geographic location of the image SUBJECT — where the scene, event, or subject is located or depicts. NOT where the work is housed/preserved. Infer from visible landmarks, architecture, text, cultural markers, vegetation, or any contextual clue. Set null ONLY for pure abstract art, generic icons, or logos with zero geographic context.",
         nullable: true,
         properties: {
           lat: { type: SchemaType.NUMBER, description: "Latitude" },
@@ -100,6 +101,21 @@ const analysisSchema: Schema = {
           country: { type: SchemaType.STRING, description: "Country name (e.g. 'Italy', 'Japan', 'United States')" },
           region: { type: SchemaType.STRING, description: "Region, state, or province (e.g. 'Tuscany', 'Kanto', 'California')" },
           city: { type: SchemaType.STRING, description: "City or town name (e.g. 'Florence', 'Tokyo', 'San Francisco')" },
+        },
+        required: ["lat", "lng", "placeName", "continent", "country"],
+      },
+      geoPreserved: {
+        type: SchemaType.OBJECT,
+        description: "Where the physical original is preserved or housed. Look for mentions of museums, galleries, libraries, archives, collections, private collections, or institutions (e.g. 'Bibliothèque nationale de France', 'British Museum', 'Uffizi Gallery', 'National Archives'). Set null if no preservation location is mentioned or inferable.",
+        nullable: true,
+        properties: {
+          lat: { type: SchemaType.NUMBER, description: "Latitude of the institution" },
+          lng: { type: SchemaType.NUMBER, description: "Longitude of the institution" },
+          placeName: { type: SchemaType.STRING, description: "Name of the institution (e.g. 'Louvre Museum', 'British Library')" },
+          continent: { type: SchemaType.STRING, description: "Continent" },
+          country: { type: SchemaType.STRING, description: "Country" },
+          region: { type: SchemaType.STRING, description: "Region or state" },
+          city: { type: SchemaType.STRING, description: "City" },
         },
         required: ["lat", "lng", "placeName", "continent", "country"],
       },
@@ -120,7 +136,7 @@ const analysisSchema: Schema = {
         items: { type: SchemaType.INTEGER },
       },
     },
-    required: ["title", "description", "category", "author", "geo", "dateInfo", "box_2d"],
+    required: ["title", "description", "category", "author", "geo", "geoPreserved", "dateInfo", "box_2d"],
   },
 };
 
@@ -160,8 +176,8 @@ Identify the author, artist, photographer, or creator of each image. Use ALL ava
 - Known works (e.g. Mona Lisa → Leonardo da Vinci)
 Return an empty string only if there are absolutely no clues to the creator.
 
-Location (geo):
-You MUST determine the geographic location for every image. Use ALL available clues:
+Location (geo) — Subject Location:
+This is WHERE the image scene/subject is located or depicts. Use ALL available clues:
 - Visible text, captions, labels, place names on the page
 - Architecture style, landmarks, cultural markers
 - Vegetation, landscape, climate indicators
@@ -170,6 +186,12 @@ You MUST determine the geographic location for every image. Use ALL available cl
 Use city/region center coordinates when exact location is unclear.
 You MUST also provide the location hierarchy: continent, country, region (state/province), and city.
 Only return null for pure abstract art or generic logos.
+
+Preservation Location (geoPreserved) — Where the Original is Housed:
+If the page mentions a museum, gallery, library, archive, collection, or institution where the original work is held, provide that location.
+Examples: "Bibliothèque nationale de France" → Paris, "British Museum" → London, "Uffizi Gallery" → Florence.
+Look for credit lines, source attributions, collection names, or institutional references on the page.
+Return null if no preservation/housing institution is mentioned or inferable.
 
 Time Period (dateInfo):
 You MUST determine the time period for every image. Use ALL available clues:
@@ -304,6 +326,7 @@ async function detectVisualElements(
         author?: string;
         metadata?: Array<{ key: string; value: string }> | null;
         geo?: { lat: number; lng: number; placeName: string; continent?: string; country?: string; region?: string; city?: string } | null;
+        geoPreserved?: { lat: number; lng: number; placeName: string; continent?: string; country?: string; region?: string; city?: string } | null;
         dateInfo?: { date?: string; era?: string; label: string } | null;
         box_2d: number[];
       }>;
@@ -387,6 +410,7 @@ async function detectVisualElements(
             author: el.author || undefined,
             ...(Object.keys(meta).length > 0 ? { metadata: meta } : {}),
             geo: el.geo || null,
+            geoPreserved: el.geoPreserved || null,
             dateInfo: el.dateInfo || null,
           };
         })

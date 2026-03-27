@@ -18,6 +18,7 @@ type PageAsset = {
   author?: string;
   metadata?: Record<string, string>;
   geo?: { lat: number; lng: number; placeName?: string; continent?: string; country?: string; region?: string; city?: string };
+  geoPreserved?: { lat: number; lng: number; placeName?: string; continent?: string; country?: string; region?: string; city?: string };
   dateInfo?: { date?: string; era?: string; label?: string };
   tags?: string[];
   negativeTags?: string[];
@@ -168,6 +169,7 @@ function AssetDetailOverlay({ asset, onClose }: { asset: PageAsset & { pageNumbe
   }, [onClose]);
 
   const hasGeo = asset.geo && (asset.geo.lat != null && asset.geo.lng != null);
+  const hasGeoPreserved = asset.geoPreserved && (asset.geoPreserved.lat != null && asset.geoPreserved.lng != null);
   const hasDate = asset.dateInfo && (asset.dateInfo.label || asset.dateInfo.era || asset.dateInfo.date);
   const hasMeta = asset.metadata && Object.keys(asset.metadata).length > 0;
   const hasTags = asset.tags && asset.tags.length > 0;
@@ -596,27 +598,35 @@ function AssetFilterBar({ assets, filter, onChange }: {
     const categories = new Set<string>();
 
     for (const a of assets) {
-      if (a.geo?.continent) continents.add(a.geo.continent);
-      if (a.geo?.country) countries.add(a.geo.country);
-      if (a.geo?.region) regions.add(a.geo.region);
-      if (a.geo?.city) cities.add(a.geo.city);
+      for (const g of [a.geo, a.geoPreserved]) {
+        if (g?.continent) continents.add(g.continent);
+        if (g?.country) countries.add(g.country);
+        if (g?.region) regions.add(g.region);
+        if (g?.city) cities.add(g.city);
+      }
       if (a.author) authors.add(a.author);
       if (a.category) categories.add(a.category);
     }
 
     // Filter cascading: if continent selected, only show countries in that continent, etc.
     let filtered = assets;
-    if (filter.continent) filtered = filtered.filter(a => a.geo?.continent === filter.continent);
-    if (filter.country) filtered = filtered.filter(a => a.geo?.country === filter.country);
-    if (filter.region) filtered = filtered.filter(a => a.geo?.region === filter.region);
+    const geoMatch = (a: typeof assets[0], field: string, val: string) => {
+      const gf = field as keyof NonNullable<typeof a.geo>;
+      return a.geo?.[gf] === val || a.geoPreserved?.[gf] === val;
+    };
+    if (filter.continent) filtered = filtered.filter(a => geoMatch(a, "continent", filter.continent!));
+    if (filter.country) filtered = filtered.filter(a => geoMatch(a, "country", filter.country!));
+    if (filter.region) filtered = filtered.filter(a => geoMatch(a, "region", filter.region!));
 
     const filteredCountries = new Set<string>();
     const filteredRegions = new Set<string>();
     const filteredCities = new Set<string>();
     for (const a of filtered) {
-      if (a.geo?.country) filteredCountries.add(a.geo.country);
-      if (a.geo?.region) filteredRegions.add(a.geo.region);
-      if (a.geo?.city) filteredCities.add(a.geo.city);
+      for (const g of [a.geo, a.geoPreserved]) {
+        if (g?.country) filteredCountries.add(g.country);
+        if (g?.region) filteredRegions.add(g.region);
+        if (g?.city) filteredCities.add(g.city);
+      }
     }
 
     return {
@@ -689,10 +699,14 @@ function AssetFilterBar({ assets, filter, onChange }: {
 
 function applyAssetFilter(assets: (PageAsset & { pageNumber: number })[], filter: AssetFilterState): (PageAsset & { pageNumber: number })[] {
   let result = assets;
-  if (filter.continent) result = result.filter(a => a.geo?.continent === filter.continent);
-  if (filter.country) result = result.filter(a => a.geo?.country === filter.country);
-  if (filter.region) result = result.filter(a => a.geo?.region === filter.region);
-  if (filter.city) result = result.filter(a => a.geo?.city === filter.city);
+  const gm = (a: typeof assets[0], f: string, v: string) => {
+    const k = f as keyof NonNullable<typeof a.geo>;
+    return a.geo?.[k] === v || a.geoPreserved?.[k] === v;
+  };
+  if (filter.continent) result = result.filter(a => gm(a, "continent", filter.continent!));
+  if (filter.country) result = result.filter(a => gm(a, "country", filter.country!));
+  if (filter.region) result = result.filter(a => gm(a, "region", filter.region!));
+  if (filter.city) result = result.filter(a => gm(a, "city", filter.city!));
   if (filter.author) result = result.filter(a => a.author === filter.author);
   if (filter.category) result = result.filter(a => a.category === filter.category);
   return result;
@@ -1154,7 +1168,7 @@ export default function Page() {
     log("Starting image detection with Gemini...");
 
     try {
-      const allResults: Map<number, Array<{ x: number; y: number; width: number; height: number; category?: string; title?: string; description?: string; author?: string; metadata?: Record<string, string>; geo?: { lat: number; lng: number; placeName: string; continent?: string; country?: string; region?: string; city?: string } | null; dateInfo?: { date?: string; era?: string; label: string } | null }>> = new Map();
+      const allResults: Map<number, Array<{ x: number; y: number; width: number; height: number; category?: string; title?: string; description?: string; author?: string; metadata?: Record<string, string>; geo?: { lat: number; lng: number; placeName: string; continent?: string; country?: string; region?: string; city?: string } | null; geoPreserved?: { lat: number; lng: number; placeName: string; continent?: string; country?: string; region?: string; city?: string } | null; dateInfo?: { date?: string; era?: string; label: string } | null }>> = new Map();
 
       // Detect images on pages in parallel batches of 3
       log("=== Detecting images on all pages (parallel) ===");
@@ -1200,7 +1214,7 @@ export default function Page() {
         });
 
         // Crop all assets from this page first
-        const croppedAssets: Array<{ assetId: string; pngBlob: Blob; bbox: AssetBBox; title?: string; description?: string; category?: string; author?: string; metadata?: Record<string, string>; geo?: { lat: number; lng: number; placeName: string; continent?: string; country?: string; region?: string; city?: string } | null; dateInfo?: { date?: string; era?: string; label: string } | null }> = [];
+        const croppedAssets: Array<{ assetId: string; pngBlob: Blob; bbox: AssetBBox; title?: string; description?: string; category?: string; author?: string; metadata?: Record<string, string>; geo?: { lat: number; lng: number; placeName: string; continent?: string; country?: string; region?: string; city?: string } | null; geoPreserved?: { lat: number; lng: number; placeName: string; continent?: string; country?: string; region?: string; city?: string } | null; dateInfo?: { date?: string; era?: string; label: string } | null }> = [];
         for (let i = 0; i < boxes.length; i++) {
           const b = boxes[i];
           const bbox: AssetBBox = { x: b.x, y: b.y, w: b.width, h: b.height };
@@ -1215,7 +1229,7 @@ export default function Page() {
             canvas.toBlob((bb) => (bb ? resolve(bb) : reject(new Error("toBlob returned null"))), "image/png");
           });
           const assetId = `p${page.pageNumber}-img${String(i + 1).padStart(2, "0")}`;
-          croppedAssets.push({ assetId, pngBlob, bbox, title: b.title, description: b.description, category: b.category, author: b.author, metadata: b.metadata, geo: b.geo, dateInfo: b.dateInfo });
+          croppedAssets.push({ assetId, pngBlob, bbox, title: b.title, description: b.description, category: b.category, author: b.author, metadata: b.metadata, geo: b.geo, geoPreserved: b.geoPreserved, dateInfo: b.dateInfo });
         }
 
         // Upload all assets from this page in parallel (batches of 4)
@@ -1229,7 +1243,7 @@ export default function Page() {
               handleUploadUrl: "/api/blob"
             });
 
-            const metadata = { assetId: asset.assetId, pageNumber: page.pageNumber, url: uploaded.url, bbox: asset.bbox, title: asset.title, description: asset.description, category: asset.category, author: asset.author, metadata: asset.metadata, geo: asset.geo, dateInfo: asset.dateInfo };
+            const metadata = { assetId: asset.assetId, pageNumber: page.pageNumber, url: uploaded.url, bbox: asset.bbox, title: asset.title, description: asset.description, category: asset.category, author: asset.author, metadata: asset.metadata, geo: asset.geo, geoPreserved: asset.geoPreserved, dateInfo: asset.dateInfo };
             await upload(`projects/${projectId}/assets/p${page.pageNumber}/${asset.assetId}.meta.txt`,
               new File([JSON.stringify(metadata)], `${asset.assetId}.meta.txt`, { type: "text/plain" }), {
               access: "public",
