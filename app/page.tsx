@@ -1223,6 +1223,125 @@ export default function Page() {
         }));
       }
 
+      // ═══ Edge-stitch pass: merge images spanning consecutive pages ═══
+      log("=== Checking for images spanning consecutive pages ===");
+      const EDGE_THRESHOLD = 0.03; // 3% of page dimension = "touching edge"
+      const OVERLAP_MIN = 0.25; // horizontal overlap must be ≥25% to be considered same image
+      const sortedPageNums = [...allResults.keys()].sort((a, b) => a - b);
+
+      for (let pi = 0; pi < sortedPageNums.length - 1; pi++) {
+        const pnA = sortedPageNums[pi];
+        const pnB = sortedPageNums[pi + 1];
+        if (pnB !== pnA + 1) continue; // not consecutive
+
+        const pageA = pages.find(p => p.pageNumber === pnA);
+        const pageB = pages.find(p => p.pageNumber === pnB);
+        if (!pageA || !pageB) continue;
+
+        const boxesA = allResults.get(pnA)!;
+        const boxesB = allResults.get(pnB)!;
+
+        // Find boxes on page A touching the bottom edge
+        const bottomEdge = boxesA.map((b, i) => ({ b, i, bottomRatio: (b.y + b.height) / pageA.height }))
+          .filter(e => e.bottomRatio >= 1 - EDGE_THRESHOLD);
+
+        // Find boxes on page B touching the top edge
+        const topEdge = boxesB.map((b, i) => ({ b, i, topRatio: b.y / pageB.height }))
+          .filter(e => e.topRatio <= EDGE_THRESHOLD);
+
+        if (bottomEdge.length === 0 || topEdge.length === 0) continue;
+
+        // Check horizontal overlap for matching pairs
+        const mergeIndices: { aIdx: number; bIdx: number }[] = [];
+        for (const a of bottomEdge) {
+          for (const b of topEdge) {
+            const aLeft = a.b.x / pageA.width;
+            const aRight = (a.b.x + a.b.width) / pageA.width;
+            const bLeft = b.b.x / pageB.width;
+            const bRight = (b.b.x + b.b.width) / pageB.width;
+            const overlapLeft = Math.max(aLeft, bLeft);
+            const overlapRight = Math.min(aRight, bRight);
+            const overlap = Math.max(0, overlapRight - overlapLeft);
+            const minWidth = Math.min(aRight - aLeft, bRight - bLeft);
+            if (minWidth > 0 && overlap / minWidth >= OVERLAP_MIN) {
+              mergeIndices.push({ aIdx: a.i, bIdx: b.i });
+              log(`Found spanning image: p${pnA}-img${a.i + 1} ↔ p${pnB}-img${b.i + 1}`);
+            }
+          }
+        }
+
+        if (mergeIndices.length === 0) continue;
+
+        // Load both page images for stitching
+        const [imgA, imgB] = await Promise.all([pageA, pageB].map(pg =>
+          new Promise<HTMLImageElement>((resolve, reject) => {
+            const el = new Image();
+            el.crossOrigin = "anonymous";
+            el.onload = () => resolve(el);
+            el.onerror = () => reject(new Error(`Failed to load p${pg.pageNumber}`));
+            el.src = bust(pg.url);
+          })
+        ));
+
+        // Process merges (reverse order so splice indices stay valid)
+        const aIndicesToRemove = new Set<number>();
+        const bIndicesToRemove = new Set<number>();
+
+        for (const { aIdx, bIdx } of mergeIndices) {
+          const bA = boxesA[aIdx];
+          const bB = boxesB[bIdx];
+
+          // Combined bounding box on stitched canvas (pageA stacked above pageB)
+          const stitchX = Math.min(bA.x, bB.x);
+          const stitchY = bA.y;
+          const stitchRight = Math.max(bA.x + bA.width, bB.x + bB.width);
+          const stitchBottom = pageA.height + bB.y + bB.height;
+          const stitchW = stitchRight - stitchX;
+          const stitchH = stitchBottom - stitchY;
+
+          // Create stitched canvas and crop
+          const canvas = document.createElement("canvas");
+          canvas.width = Math.max(1, Math.floor(stitchW));
+          canvas.height = Math.max(1, Math.floor(stitchH));
+          const ctx = canvas.getContext("2d");
+          if (!ctx) continue;
+
+          // Draw portion from page A
+          const aPartH = pageA.height - bA.y;
+          ctx.drawImage(imgA, stitchX, bA.y, stitchW, aPartH, 0, 0, stitchW, aPartH);
+          // Draw portion from page B
+          const bPartH = bB.y + bB.height;
+          ctx.drawImage(imgB, stitchX, 0, stitchW, bPartH, 0, aPartH, stitchW, bPartH);
+
+          const pngBlob = await new Promise<Blob>((resolve, reject) => {
+            canvas.toBlob(bb => bb ? resolve(bb) : reject(new Error("toBlob null")), "image/png");
+          });
+
+          // Pick richer metadata from the two halves
+          const best = (bA.title || bA.description || "").length >= (bB.title || bB.description || "").length ? bA : bB;
+          const mergedBox = {
+            x: stitchX, y: stitchY, width: stitchW, height: stitchH,
+            category: best.category, title: best.title ? `${best.title} (merged)` : undefined,
+            description: best.description, author: best.author, metadata: best.metadata,
+            geo: best.geo, geoPreserved: (best as typeof boxesA[0]).geoPreserved,
+            dateInfo: best.dateInfo,
+            _merged: true, _mergedBlob: pngBlob, _mergedPageA: pnA, _mergedPageB: pnB,
+          };
+
+          // Add merged to page A's results
+          boxesA.push(mergedBox as typeof boxesA[0]);
+          aIndicesToRemove.add(aIdx);
+          bIndicesToRemove.add(bIdx);
+          log(`Merged p${pnA}-img${aIdx + 1} + p${pnB}-img${bIdx + 1} → stitched (${canvas.width}×${canvas.height})`);
+        }
+
+        // Remove the original halves (reverse order)
+        const newBoxesA = boxesA.filter((_, i) => !aIndicesToRemove.has(i));
+        const newBoxesB = boxesB.filter((_, i) => !bIndicesToRemove.has(i));
+        if (newBoxesA.length > 0) allResults.set(pnA, newBoxesA); else allResults.delete(pnA);
+        if (newBoxesB.length > 0) allResults.set(pnB, newBoxesB); else allResults.delete(pnB);
+      }
+
       // Crop and upload assets in parallel
       log("=== Cropping and uploading assets (parallel) ===");
       const pagesWithDetections = pages.filter(p => allResults.has(p.pageNumber));
@@ -1241,19 +1360,27 @@ export default function Page() {
         // Crop all assets from this page first
         const croppedAssets: Array<{ assetId: string; pngBlob: Blob; bbox: AssetBBox; title?: string; description?: string; category?: string; author?: string; metadata?: Record<string, string>; geo?: { lat: number; lng: number; placeName: string; continent?: string; country?: string; region?: string; city?: string } | null; geoPreserved?: { lat: number; lng: number; placeName: string; continent?: string; country?: string; region?: string; city?: string } | null; dateInfo?: { date?: string; era?: string; label: string } | null }> = [];
         for (let i = 0; i < boxes.length; i++) {
-          const b = boxes[i];
+          const b = boxes[i] as typeof boxes[0] & { _merged?: boolean; _mergedBlob?: Blob };
           const bbox: AssetBBox = { x: b.x, y: b.y, w: b.width, h: b.height };
-          const canvas = document.createElement("canvas");
-          const ctx = canvas.getContext("2d");
-          if (!ctx) throw new Error("Cannot create canvas 2D context");
-          canvas.width = Math.max(1, Math.floor(bbox.w));
-          canvas.height = Math.max(1, Math.floor(bbox.h));
-          ctx.drawImage(img, bbox.x, bbox.y, bbox.w, bbox.h, 0, 0, canvas.width, canvas.height);
 
-          const pngBlob = await new Promise<Blob>((resolve, reject) => {
-            canvas.toBlob((bb) => (bb ? resolve(bb) : reject(new Error("toBlob returned null"))), "image/png");
-          });
-          const assetId = `p${page.pageNumber}-img${String(i + 1).padStart(2, "0")}`;
+          let pngBlob: Blob;
+          if (b._merged && b._mergedBlob) {
+            // Already stitched during edge-merge pass
+            pngBlob = b._mergedBlob;
+          } else {
+            const canvas = document.createElement("canvas");
+            const ctx = canvas.getContext("2d");
+            if (!ctx) throw new Error("Cannot create canvas 2D context");
+            canvas.width = Math.max(1, Math.floor(bbox.w));
+            canvas.height = Math.max(1, Math.floor(bbox.h));
+            ctx.drawImage(img, bbox.x, bbox.y, bbox.w, bbox.h, 0, 0, canvas.width, canvas.height);
+            pngBlob = await new Promise<Blob>((resolve, reject) => {
+              canvas.toBlob((bb) => (bb ? resolve(bb) : reject(new Error("toBlob returned null"))), "image/png");
+            });
+          }
+
+          const suffix = b._merged ? "merged" : String(i + 1).padStart(2, "0");
+          const assetId = `p${page.pageNumber}-img${suffix}`;
           croppedAssets.push({ assetId, pngBlob, bbox, title: b.title, description: b.description, category: b.category, author: b.author, metadata: b.metadata, geo: b.geo, geoPreserved: b.geoPreserved, dateInfo: b.dateInfo });
         }
 
