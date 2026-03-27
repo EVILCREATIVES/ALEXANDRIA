@@ -1133,6 +1133,40 @@ export default function Page() {
       const totalDetected = Array.from(allResults.values()).reduce((sum, b) => sum + b.length, 0);
       log(`Detection complete: ${totalDetected} assets on ${allResults.size} pages`);
       await refreshProjects();
+
+      // Auto-enrich geo/timeline immediately after detection
+      if (totalDetected > 0) {
+        const mUrl = buildResult.manifestUrl;
+        log("Auto-enriching geo/timeline data...");
+        setBusy("Enriching geo/timeline...");
+        try {
+          const enrichRes = await fetch("/api/projects/assets/enrich", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ projectId, manifestUrl: mUrl, force: true })
+          });
+          if (enrichRes.ok) {
+            const enrichData = (await enrichRes.json()) as { ok: boolean; enriched?: number; total?: number; manifestUrl?: string; error?: string; errors?: string[] };
+            if (enrichData.ok) {
+              log(`Geo/timeline enriched: ${enrichData.enriched ?? 0}/${enrichData.total ?? 0} assets`);
+              if (enrichData.errors?.length) {
+                for (const err of enrichData.errors) log(`  ⚠️ ${err}`);
+              }
+              const enrichedUrl = enrichData.manifestUrl || mUrl;
+              setManifestUrl(enrichedUrl);
+              manifestUrlRef.current = enrichedUrl;
+              setUrlParams(projectId, enrichedUrl);
+              await loadManifest(enrichedUrl);
+            } else {
+              log(`Geo/timeline enrichment issue: ${enrichData.error || "unknown"}`);
+            }
+          } else {
+            log(`Geo/timeline enrichment failed: ${await readErrorText(enrichRes)}`);
+          }
+        } catch (enrichErr) {
+          log(`Geo/timeline enrichment error: ${enrichErr instanceof Error ? enrichErr.message : String(enrichErr)}`);
+        }
+      }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       log(`Detection error: ${msg}`);
