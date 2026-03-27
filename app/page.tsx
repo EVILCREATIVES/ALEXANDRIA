@@ -166,7 +166,7 @@ function AssetDetailOverlay({ asset, onClose }: { asset: PageAsset & { pageNumbe
     return () => window.removeEventListener("keydown", handler);
   }, [onClose]);
 
-  const hasGeo = asset.geo && (asset.geo.lat || asset.geo.lng);
+  const hasGeo = asset.geo && (asset.geo.lat != null && asset.geo.lng != null);
   const hasDate = asset.dateInfo && (asset.dateInfo.label || asset.dateInfo.era || asset.dateInfo.date);
   const hasMeta = asset.metadata && Object.keys(asset.metadata).length > 0;
   const hasTags = asset.tags && asset.tags.length > 0;
@@ -812,11 +812,13 @@ export default function Page() {
       if (data.errors && data.errors.length > 0) {
         for (const err of data.errors) log(`  ⚠️ ${err}`);
       }
-      if (data.manifestUrl) {
-        setManifestUrl(data.manifestUrl);
-        manifestUrlRef.current = data.manifestUrl;
-        setUrlParams(projectId, data.manifestUrl);
-        await loadManifest(data.manifestUrl);
+      // Always reload manifest (URL may be same but content changed)
+      const mUrl = data.manifestUrl || manifestUrl;
+      if (mUrl) {
+        setManifestUrl(mUrl);
+        manifestUrlRef.current = mUrl;
+        setUrlParams(projectId, mUrl);
+        await loadManifest(mUrl);
       }
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);

@@ -19,7 +19,7 @@ const enrichSchema: Schema = {
       assetId: { type: SchemaType.STRING, description: "The assetId being enriched" },
       geo: {
         type: SchemaType.OBJECT,
-        description: "Geographic location. null if cannot be determined.",
+        description: "Geographic location. Set to null ONLY for pure abstract art, logos with no geographic origin, or entirely generic diagrams. For everything else, infer the most likely location.",
         nullable: true,
         properties: {
           lat: { type: SchemaType.NUMBER, description: "Latitude" },
@@ -30,7 +30,7 @@ const enrichSchema: Schema = {
       },
       dateInfo: {
         type: SchemaType.OBJECT,
-        description: "Temporal context. null if cannot be determined.",
+        description: "Temporal context. Set to null ONLY for pure abstract art or logos with no temporal context. For everything else, infer the most likely time period.",
         nullable: true,
         properties: {
           date: { type: SchemaType.STRING, description: "ISO date or year string (e.g. '1453', '1920-06', '2024-03-15')" },
@@ -40,28 +40,32 @@ const enrichSchema: Schema = {
         required: ["label"],
       },
     },
-    required: ["assetId"],
+    required: ["assetId", "geo", "dateInfo"],
   },
 };
 
 const SYSTEM_PROMPT = `You are an expert archivist analyzing images extracted from document pages.
-For each image, determine its **geographic location** and **temporal context**.
+For each image, you MUST determine its **geographic location** and **temporal context**.
 
 You receive each asset's image alongside its text metadata and the surrounding page text.
 Use the images to match each asset with the correct textual context.
 
-PRIORITY ORDER for deriving geo/date:
-1. **ASSET DESCRIPTION & METADATA** (highest priority) — the title, description, category, and metadata fields already attached to each asset. These were assigned during detection and are the most direct source.
+INPUT PRIORITY (use all available sources):
+1. **ASSET DESCRIPTION & METADATA** — the title, description, category, and metadata fields already attached to each asset.
 2. **PAGE TEXT CONTEXT** — extracted text from the same page. Use captions, headings, place names, dates, and historical references near each asset.
-3. **VISUAL CUES** (supporting) — use the image itself to confirm or supplement what the text says (architecture style, landscape, fashion era, visible signage, etc.). Do NOT rely on visual analysis alone when text is available.
+3. **VISUAL CUES** — architecture style, landscape, fashion era, visible signage, vegetation, technology visible, artistic style/movement, etc.
 
-RULES:
-- Set geo to null if no location can be determined.
-- Set dateInfo to null if no time period can be determined.
-- Be conservative — only assign when evidence supports it.
-- Use city/region center coordinates when exact location is unclear but a place is named.
-- For fictional/fantasy content: use real-world analogs for era, leave geo null unless a real location is referenced.
-- For logos, diagrams, or abstract images: set both null unless text context provides information.`;
+RULES — BE GENEROUS, NOT CONSERVATIVE:
+- You MUST provide geo and dateInfo for every asset unless it is truly impossible (pure abstract art, generic logos).
+- If the exact location is unknown, infer the MOST LIKELY region, country, or city based on all clues (text mentions, architectural style, cultural markers, vegetation, script/language visible, etc.).
+- If the exact date is unknown, infer the MOST LIKELY era or century. Historical paintings, engravings, photographs all have identifiable time periods based on style, technique, and subject matter.
+- Use city/region center coordinates when exact location is unclear but a place or culture is identifiable.
+- For photographs: infer era from technology, fashion, photographic technique (daguerreotype, albumen print, digital, etc.).
+- For artwork: infer era from artistic style/movement and medium. Infer location from subject, artist origin, or depicted location.
+- For maps: the geographic subject IS the location. The style/technique indicates the era.
+- For fictional/fantasy content: use real-world analogs for era; use real-world cultural inspiration for geo if identifiable.
+- ONLY return null for geo/dateInfo if the image is a pure abstract shape, a generic icon, or a modern logo with zero geographic/temporal context.
+- When in doubt, make your best educated guess — an approximate answer is far better than null.`;
 
 interface EnrichRequest {
   projectId: string;
@@ -92,11 +96,12 @@ export async function POST(req: NextRequest): Promise<Response> {
     return NextResponse.json({ ok: false, error: `Failed to load manifest: ${e instanceof Error ? e.message : e}` }, { status: 400 });
   }
 
-  /* ── Load extracted page text ── */
+  /* ── Load extracted page text (try extractedText first, then formattedText as fallback) ── */
   const pageTextMap = new Map<number, string>();
-  if (manifest.extractedText?.url) {
+  const textUrl = manifest.extractedText?.url || manifest.formattedText?.url;
+  if (textUrl) {
     try {
-      const textRes = await fetch(manifest.extractedText.url);
+      const textRes = await fetch(textUrl);
       if (textRes.ok) {
         const fullText = await textRes.text();
         const pagePattern = /---\s*Page\s+(\d+)\s*---/g;
@@ -110,11 +115,13 @@ export async function POST(req: NextRequest): Promise<Response> {
           const text = fullText.slice(markers[i].idx, end).trim();
           if (text) pageTextMap.set(markers[i].pageNum, text);
         }
-        console.log(`[enrich] Loaded extracted text for ${pageTextMap.size} pages`);
+        console.log(`[enrich] Loaded text for ${pageTextMap.size} pages from ${manifest.extractedText?.url ? 'extractedText' : 'formattedText'}`);
       }
     } catch (e) {
-      console.warn(`[enrich] Could not load extracted text:`, e instanceof Error ? e.message : e);
+      console.warn(`[enrich] Could not load text:`, e instanceof Error ? e.message : e);
     }
+  } else {
+    console.warn(`[enrich] No extractedText or formattedText URL available — enrichment will rely on images only`);
   }
 
   /* ── Collect unenriched assets grouped by page, plus page image URLs ── */
@@ -139,7 +146,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   }
 
   if (totalUnenriched === 0) {
-    return NextResponse.json({ ok: true, enriched: 0, message: "All assets already enriched" });
+    return NextResponse.json({ ok: true, enriched: 0, total: 0, message: "All assets already enriched", manifestUrl });
   }
 
   console.log(`[enrich] Found ${totalUnenriched} unenriched assets across ${byPage.size} pages`);
@@ -226,7 +233,7 @@ export async function POST(req: NextRequest): Promise<Response> {
       // 3. Individual asset images
       const assetIds: string[] = [];
       for (const asset of batch) {
-        const imageUrl = asset.thumbnailUrl || asset.url;
+        const imageUrl = asset.url; // Always use full-resolution image for enrichment analysis
         const img = await fetchImage(imageUrl);
         if (img) {
           parts.push({ text: `[Asset "${asset.assetId}":]` });
