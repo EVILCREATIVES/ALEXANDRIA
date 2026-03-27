@@ -29,11 +29,7 @@ interface DetectedBox {
   category?: string;
   title?: string;
   description?: string;
-  author?: string;
   metadata?: Record<string, string>;
-  geo?: { lat: number; lng: number; placeName: string; continent?: string; country?: string; region?: string; city?: string } | null;
-  geoPreserved?: { lat: number; lng: number; placeName: string; continent?: string; country?: string; region?: string; city?: string } | null;
-  dateInfo?: { date?: string; era?: string; label: string } | null;
 }
 
 // Simplified detection rules - PDF Vision Extractor approach
@@ -72,10 +68,6 @@ const analysisSchema: Schema = {
         type: SchemaType.STRING,
         description: "Content-appropriate category determined by analyzing the image (e.g. portrait, landscape, character, vehicle, diagram, map, logo, architectural, still-life, fashion, wildlife, abstract, etc.)",
       },
-      author: {
-        type: SchemaType.STRING,
-        description: "Author, artist, photographer, or creator of this image. Infer from signatures, credits, captions, artistic style, or contextual clues. Return empty string if unknown.",
-      },
       metadata: {
         type: SchemaType.ARRAY,
         description: "Dynamic content-specific metadata as key-value pairs. Keys depend on what is relevant to this image. Examples: author, year, style, medium, camera, lens, technique, period, material, culture, movement.",
@@ -89,58 +81,17 @@ const analysisSchema: Schema = {
           required: ["key", "value"],
         },
       },
-      geo: {
-        type: SchemaType.OBJECT,
-        description: "Geographic location of the image SUBJECT — where the scene, event, or subject is located or depicts. NOT where the work is housed/preserved. Infer from visible landmarks, architecture, text, cultural markers, vegetation, or any contextual clue. Set null ONLY for pure abstract art, generic icons, or logos with zero geographic context.",
-        nullable: true,
-        properties: {
-          lat: { type: SchemaType.NUMBER, description: "Latitude" },
-          lng: { type: SchemaType.NUMBER, description: "Longitude" },
-          placeName: { type: SchemaType.STRING, description: "Human-readable place name" },
-          continent: { type: SchemaType.STRING, description: "Continent (e.g. 'Europe', 'Asia', 'North America', 'South America', 'Africa', 'Oceania', 'Antarctica')" },
-          country: { type: SchemaType.STRING, description: "Country name (e.g. 'Italy', 'Japan', 'United States')" },
-          region: { type: SchemaType.STRING, description: "Region, state, or province (e.g. 'Tuscany', 'Kanto', 'California')" },
-          city: { type: SchemaType.STRING, description: "City or town name (e.g. 'Florence', 'Tokyo', 'San Francisco')" },
-        },
-        required: ["lat", "lng", "placeName", "continent", "country"],
-      },
-      geoPreserved: {
-        type: SchemaType.OBJECT,
-        description: "Where the physical original is preserved or housed. Look for mentions of museums, galleries, libraries, archives, collections, private collections, or institutions (e.g. 'Bibliothèque nationale de France', 'British Museum', 'Uffizi Gallery', 'National Archives'). Set null if no preservation location is mentioned or inferable.",
-        nullable: true,
-        properties: {
-          lat: { type: SchemaType.NUMBER, description: "Latitude of the institution" },
-          lng: { type: SchemaType.NUMBER, description: "Longitude of the institution" },
-          placeName: { type: SchemaType.STRING, description: "Name of the institution (e.g. 'Louvre Museum', 'British Library')" },
-          continent: { type: SchemaType.STRING, description: "Continent" },
-          country: { type: SchemaType.STRING, description: "Country" },
-          region: { type: SchemaType.STRING, description: "Region or state" },
-          city: { type: SchemaType.STRING, description: "City" },
-        },
-        required: ["lat", "lng", "placeName", "continent", "country"],
-      },
-      dateInfo: {
-        type: SchemaType.OBJECT,
-        description: "Temporal context of the image. Infer from artistic style, photographic technique, fashion, technology visible, medium, or any contextual clue. Set null ONLY for pure abstract art or generic logos.",
-        nullable: true,
-        properties: {
-          date: { type: SchemaType.STRING, description: "ISO date or year string (e.g. '1453', '1920-06', '2024-03-15')" },
-          era: { type: SchemaType.STRING, description: "Historical era or period (e.g. 'Medieval', 'Renaissance', '20th Century', 'Modern')" },
-          label: { type: SchemaType.STRING, description: "Short human-readable time label for display" },
-        },
-        required: ["label"],
-      },
       box_2d: {
         type: SchemaType.ARRAY,
         description: "Bounding box [ymin, xmin, ymax, xmax] on 0-1000 scale",
         items: { type: SchemaType.INTEGER },
       },
     },
-    required: ["title", "description", "category", "author", "geo", "geoPreserved", "dateInfo", "box_2d"],
+    required: ["title", "description", "category", "box_2d"],
   },
 };
 
-const DEFAULT_PROMPT = `Detect every image on this page. For each image found, provide its title, description, category, author, bounding box, relevant metadata, geographic location (with hierarchy), and time period.
+const DEFAULT_PROMPT = `Detect every image on this page. For each image found, provide its title, description, category, bounding box, and any relevant metadata.
 
 What counts as an image:
 - Illustrations, character art, portraits
@@ -167,40 +118,6 @@ Extract any content-specific metadata visible in or inferable from the image:
 - For diagrams/charts: chartType (e.g. "bar chart", "flowchart"), subject
 - For any image: period, culture, material, technique — whatever is genuinely relevant
 Only include metadata keys that are clearly supported by visual evidence. Do not guess.
-
-Author:
-Identify the author, artist, photographer, or creator of each image. Use ALL available clues:
-- Signatures, monograms, watermarks visible in the image
-- Credit lines, captions, attribution text on the page
-- Recognizable artistic style (e.g. "Hokusai" ukiyo-e style, "Ansel Adams" landscape photography)
-- Known works (e.g. Mona Lisa → Leonardo da Vinci)
-Return an empty string only if there are absolutely no clues to the creator.
-
-Location (geo) — Subject Location:
-This is WHERE the image scene/subject is located or depicts. Use ALL available clues:
-- Visible text, captions, labels, place names on the page
-- Architecture style, landmarks, cultural markers
-- Vegetation, landscape, climate indicators
-- Language/script visible, cultural artifacts
-- Subject matter context (e.g. "Samurai" → Japan, "Colosseum" → Rome)
-Use city/region center coordinates when exact location is unclear.
-You MUST also provide the location hierarchy: continent, country, region (state/province), and city.
-Only return null for pure abstract art or generic logos.
-
-Preservation Location (geoPreserved) — Where the Original is Housed:
-If the page mentions a museum, gallery, library, archive, collection, or institution where the original work is held, provide that location.
-Examples: "Bibliothèque nationale de France" → Paris, "British Museum" → London, "Uffizi Gallery" → Florence.
-Look for credit lines, source attributions, collection names, or institutional references on the page.
-Return null if no preservation/housing institution is mentioned or inferable.
-
-Time Period (dateInfo):
-You MUST determine the time period for every image. Use ALL available clues:
-- Dates visible in text or captions on the page
-- Photographic technique (daguerreotype → 1840s-1860s, albumen print → 1850s-1890s, etc.)
-- Artistic style and medium (oil painting style, engraving technique, etc.)
-- Fashion, technology, architecture visible
-- Historical context from subject matter
-When in doubt, give your best estimate. Only return null for pure abstract art or generic logos.
 
 Be thorough — check edges and corners too.`;
 
@@ -323,11 +240,7 @@ async function detectVisualElements(
         title: string;
         description: string;
         category?: string;
-        author?: string;
         metadata?: Array<{ key: string; value: string }> | null;
-        geo?: { lat: number; lng: number; placeName: string; continent?: string; country?: string; region?: string; city?: string } | null;
-        geoPreserved?: { lat: number; lng: number; placeName: string; continent?: string; country?: string; region?: string; city?: string } | null;
-        dateInfo?: { date?: string; era?: string; label: string } | null;
         box_2d: number[];
       }>;
 
@@ -407,11 +320,7 @@ async function detectVisualElements(
             title: el.title,
             description: el.description,
             category: el.category,
-            author: el.author || undefined,
             ...(Object.keys(meta).length > 0 ? { metadata: meta } : {}),
-            geo: el.geo || null,
-            geoPreserved: el.geoPreserved || null,
-            dateInfo: el.dateInfo || null,
           };
         })
         .filter(box => box.width >= minSizePx && box.height >= minSizePx);

@@ -350,29 +350,33 @@ function AssetDetailOverlay({ asset, onClose }: { asset: PageAsset & { pageNumbe
   );
 }
 
-/* ───────── Map View ───────── */
+/* ───────── Map View (Google Maps) ───────── */
 function MapView({ assets, onSelect }: { assets: (PageAsset & { pageNumber: number })[]; onSelect?: (a: PageAsset & { pageNumber: number }) => void }) {
   const mapRef = useRef<HTMLDivElement>(null);
-  const mapInstanceRef = useRef<unknown>(null);
-  const leafletReady = useRef(false);
-  const geoAssets = useMemo(() => assets.filter((a) => a.geo), [assets]);
+  const mapInstanceRef = useRef<google.maps.Map | null>(null);
+  const markersRef = useRef<google.maps.marker.AdvancedMarkerElement[]>([]);
+  const infoWindowRef = useRef<google.maps.InfoWindow | null>(null);
+  const [geoMode, setGeoMode] = useState<"subject" | "preserved">("subject");
+  const gmReady = useRef(false);
+
+  const geoAssets = useMemo(() => {
+    return assets.filter((a) => geoMode === "subject" ? a.geo : a.geoPreserved);
+  }, [assets, geoMode]);
   const assetsRef = useRef(geoAssets);
   const onSelectRef = useRef(onSelect);
 
   useEffect(() => { assetsRef.current = geoAssets; }, [geoAssets]);
   useEffect(() => { onSelectRef.current = onSelect; }, [onSelect]);
 
-  // Load Leaflet once
+  // Load Google Maps script once
   useEffect(() => {
-    if (leafletReady.current) return;
-    if ((window as unknown as Record<string, unknown>).L) { leafletReady.current = true; return; }
-    const link = document.createElement("link");
-    link.rel = "stylesheet";
-    link.href = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.css";
-    document.head.appendChild(link);
+    if (gmReady.current || (window as unknown as Record<string, unknown>).google) { gmReady.current = true; return; }
+    const apiKey = process.env.NEXT_PUBLIC_GOOGLE_MAP || "";
+    if (!apiKey) return;
     const script = document.createElement("script");
-    script.src = "https://unpkg.com/leaflet@1.9.4/dist/leaflet.js";
-    script.onload = () => { leafletReady.current = true; };
+    script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&libraries=marker&v=weekly`;
+    script.async = true;
+    script.onload = () => { gmReady.current = true; };
     document.head.appendChild(script);
   }, []);
 
@@ -380,78 +384,86 @@ function MapView({ assets, onSelect }: { assets: (PageAsset & { pageNumber: numb
   useEffect(() => {
     if (geoAssets.length === 0) return;
 
-    // Destroy previous
-    if (mapInstanceRef.current) {
-      (mapInstanceRef.current as { remove: () => void }).remove();
-      mapInstanceRef.current = null;
-    }
+    // Cleanup previous markers
+    for (const m of markersRef.current) m.map = null;
+    markersRef.current = [];
+    if (infoWindowRef.current) infoWindowRef.current.close();
 
     const tryInit = () => {
-      const L = (window as unknown as Record<string, unknown>).L as {
-        map: (el: HTMLElement) => {
-          setView: (center: [number, number], zoom: number) => unknown;
-          remove: () => void;
-        };
-        tileLayer: (url: string, opts: Record<string, unknown>) => { addTo: (map: unknown) => void };
-        marker: (latlng: [number, number]) => { addTo: (map: unknown) => { bindPopup: (html: string) => void } };
-        latLngBounds: (points: [number, number][]) => unknown;
-      };
-      if (!L || !mapRef.current) return false;
+      const g = (window as unknown as { google?: { maps?: typeof google.maps } }).google?.maps;
+      if (!g || !mapRef.current) return false;
 
-      const map = L.map(mapRef.current).setView([20, 0], 2);
-      mapInstanceRef.current = map;
-
-      L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-        attribution: '&copy; <a href="https://openstreetmap.org">OSM</a>',
-        maxZoom: 18,
-      }).addTo(map);
-
-      const points: [number, number][] = [];
-      for (const asset of assetsRef.current) {
-        if (!asset.geo) continue;
-        const pos: [number, number] = [asset.geo.lat, asset.geo.lng];
-        points.push(pos);
-        const thumb = asset.thumbnailUrl || asset.url;
-        const safeTitle = (asset.title || asset.assetId).replace(/"/g, "&quot;");
-        const safePn = (asset.geo.placeName || "").replace(/"/g, "&quot;");
-        const popup = `<div style="text-align:center;max-width:200px"><img src="${thumb}" style="width:100%;max-height:120px;object-fit:cover;border-radius:4px;margin-bottom:4px"/><div style="font-weight:600;font-size:12px">${safeTitle}</div><div style="font-size:11px;color:#666">${safePn}</div>${asset.dateInfo?.label ? `<div style="font-size:11px;color:#888">📅 ${asset.dateInfo.label}</div>` : ""}${asset.author ? `<div style="font-size:11px;color:#888">✍️ ${asset.author.replace(/"/g, "&quot;")}</div>` : ""}<button data-asset-id="${asset.assetId}" class="map-detail-btn" style="margin-top:6px;padding:3px 10px;font-size:11px;background:#1a1510;color:#fff;border:none;border-radius:4px;cursor:pointer">View Details</button></div>`;
-        L.marker(pos).addTo(map).bindPopup(popup);
+      // Create map once, reuse on subsequent calls
+      if (!mapInstanceRef.current) {
+        mapInstanceRef.current = new g.Map(mapRef.current, {
+          center: { lat: 20, lng: 0 },
+          zoom: 2,
+          mapId: "alexandria-map",
+          mapTypeControl: true,
+          streetViewControl: true,
+        });
+        infoWindowRef.current = new g.InfoWindow();
       }
 
-      // Event delegation for popup "View Details" buttons
-      mapRef.current.addEventListener("click", (e) => {
-        const btn = (e.target as HTMLElement).closest(".map-detail-btn") as HTMLElement | null;
-        if (!btn) return;
-        const aid = btn.dataset.assetId;
-        const found = assetsRef.current.find((a) => a.assetId === aid);
-        if (found && onSelectRef.current) onSelectRef.current(found);
-      });
+      const map = mapInstanceRef.current;
+      const bounds = new g.LatLngBounds();
 
-      if (points.length > 1) {
-        (map as unknown as { fitBounds: (b: unknown, o: Record<string, unknown>) => void }).fitBounds(L.latLngBounds(points), { padding: [40, 40] });
-      } else if (points.length === 1) {
-        (map as unknown as { setView: (c: [number, number], z: number) => void }).setView(points[0], 6);
+      for (const asset of assetsRef.current) {
+        const geo = geoMode === "subject" ? asset.geo : asset.geoPreserved;
+        if (!geo) continue;
+        const pos = { lat: geo.lat, lng: geo.lng };
+        bounds.extend(pos);
+
+        const marker = new g.marker.AdvancedMarkerElement({ map, position: pos, title: asset.title || asset.assetId });
+
+        marker.addListener("click", () => {
+          const thumb = asset.thumbnailUrl || asset.url;
+          const safeTitle = (asset.title || asset.assetId).replace(/"/g, "&quot;").replace(/</g, "&lt;");
+          const safePn = (geo.placeName || "").replace(/"/g, "&quot;").replace(/</g, "&lt;");
+          const content = document.createElement("div");
+          content.style.cssText = "text-align:center;max-width:220px;font-family:system-ui";
+          content.innerHTML = `<img src="${thumb}" style="width:100%;max-height:120px;object-fit:cover;border-radius:4px;margin-bottom:4px"/><div style="font-weight:600;font-size:12px">${safeTitle}</div><div style="font-size:11px;color:#666">${safePn}</div>${asset.dateInfo?.label ? `<div style="font-size:11px;color:#888">📅 ${asset.dateInfo.label}</div>` : ""}${asset.author ? `<div style="font-size:11px;color:#888">✍️ ${asset.author.replace(/"/g, "&quot;").replace(/</g, "&lt;")}</div>` : ""}`;
+          const btn = document.createElement("button");
+          btn.textContent = "View Details";
+          btn.style.cssText = "margin-top:6px;padding:3px 10px;font-size:11px;background:#1a1510;color:#fff;border:none;border-radius:4px;cursor:pointer";
+          btn.onclick = () => { if (onSelectRef.current) onSelectRef.current(asset); };
+          content.appendChild(btn);
+          infoWindowRef.current!.setContent(content);
+          infoWindowRef.current!.open(map, marker);
+        });
+
+        markersRef.current.push(marker);
+      }
+
+      if (markersRef.current.length > 1) {
+        map.fitBounds(bounds, { top: 40, right: 40, bottom: 40, left: 40 });
+      } else if (markersRef.current.length === 1) {
+        map.setCenter(bounds.getCenter());
+        map.setZoom(6);
       }
       return true;
     };
 
-    // Leaflet might not be loaded yet
     if (!tryInit()) {
       const interval = setInterval(() => {
         if (tryInit()) clearInterval(interval);
       }, 100);
       return () => clearInterval(interval);
     }
+  }, [geoAssets, geoMode]);
 
+  // Cleanup on unmount
+  useEffect(() => {
     return () => {
-      if (mapInstanceRef.current) {
-        (mapInstanceRef.current as { remove: () => void }).remove();
-        mapInstanceRef.current = null;
-      }
+      for (const m of markersRef.current) m.map = null;
+      markersRef.current = [];
     };
-  }, [geoAssets]);
+  }, []);
 
-  if (geoAssets.length === 0) {
+  const hasSubject = assets.some(a => a.geo);
+  const hasPreserved = assets.some(a => a.geoPreserved);
+
+  if (!hasSubject && !hasPreserved) {
     return (
       <div style={{ padding: "40px 20px", textAlign: "center", color: "#8a7e6b" }}>
         <div style={{ fontSize: 40, marginBottom: 12 }}>🗺️</div>
@@ -461,10 +473,23 @@ function MapView({ assets, onSelect }: { assets: (PageAsset & { pageNumber: numb
     );
   }
 
+  const toggleStyle = (active: boolean): React.CSSProperties => ({
+    padding: "4px 12px", fontSize: 11, borderRadius: 4, cursor: "pointer", border: "none",
+    background: active ? "#1a1510" : "#e5e0d5", color: active ? "#fff" : "#6b5d4d", fontWeight: active ? 600 : 400,
+  });
+
   return (
     <div>
-      <div style={{ fontSize: 12, color: "#8a7e6b", marginBottom: 8 }}>
-        {geoAssets.length} of {assets.length} assets have geographic data
+      <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 8 }}>
+        <span style={{ fontSize: 12, color: "#8a7e6b" }}>
+          {geoAssets.length} of {assets.length} assets have geographic data
+        </span>
+        {hasSubject && hasPreserved && (
+          <span style={{ display: "inline-flex", gap: 4, marginLeft: "auto" }}>
+            <button type="button" onClick={() => setGeoMode("subject")} style={toggleStyle(geoMode === "subject")}>📍 Subject Location</button>
+            <button type="button" onClick={() => setGeoMode("preserved")} style={toggleStyle(geoMode === "preserved")}>🏛️ Preserved At</button>
+          </span>
+        )}
       </div>
       <div ref={mapRef} style={{ width: "100%", height: 500, borderRadius: 8, border: "1px solid #e5e0d5" }} />
     </div>
