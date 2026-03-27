@@ -15,8 +15,9 @@ type PageAsset = {
   title?: string;
   description?: string;
   category?: string;
+  author?: string;
   metadata?: Record<string, string>;
-  geo?: { lat: number; lng: number; placeName?: string };
+  geo?: { lat: number; lng: number; placeName?: string; continent?: string; country?: string; region?: string; city?: string };
   dateInfo?: { date?: string; era?: string; label?: string };
   tags?: string[];
   negativeTags?: string[];
@@ -1199,7 +1200,7 @@ export default function Page() {
         });
 
         // Crop all assets from this page first
-        const croppedAssets: Array<{ assetId: string; pngBlob: Blob; bbox: AssetBBox; title?: string; description?: string; category?: string; metadata?: Record<string, string>; geo?: { lat: number; lng: number; placeName: string } | null; dateInfo?: { date?: string; era?: string; label: string } | null }> = [];
+        const croppedAssets: Array<{ assetId: string; pngBlob: Blob; bbox: AssetBBox; title?: string; description?: string; category?: string; author?: string; metadata?: Record<string, string>; geo?: { lat: number; lng: number; placeName: string; continent?: string; country?: string; region?: string; city?: string } | null; dateInfo?: { date?: string; era?: string; label: string } | null }> = [];
         for (let i = 0; i < boxes.length; i++) {
           const b = boxes[i];
           const bbox: AssetBBox = { x: b.x, y: b.y, w: b.width, h: b.height };
