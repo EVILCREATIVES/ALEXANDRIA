@@ -834,6 +834,20 @@ export default function Page() {
   const [debugLogOpen, setDebugLogOpen] = useState(false);
   const [debugLog, setDebugLog] = useState<string[]>([]);
 
+  /* ── Chat ── */
+  type ChatMessage = { role: "user" | "assistant"; content: string };
+  const [chatOpen, setChatOpen] = useState(false);
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [chatInput, setChatInput] = useState("");
+  const [chatBusy, setChatBusy] = useState(false);
+  const [chatProvider, setChatProvider] = useState<"gemini" | "claude">("gemini");
+  const chatEndRef = useRef<HTMLDivElement>(null);
+
+  // Auto-scroll chat
+  useEffect(() => {
+    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [chatMessages]);
+
   const selectedStartupProject = useMemo(
     () => projects.find((p) => p.projectId === startupProjectId) || null,
     [projects, startupProjectId]
@@ -842,6 +856,76 @@ export default function Page() {
   function log(msg: string) {
     const ts = new Date().toLocaleTimeString();
     setDebugLog((prev) => [...prev, `[${ts}] ${msg}`]);
+  }
+
+  /* ── Chat ── */
+  async function sendChat() {
+    const text = chatInput.trim();
+    if (!text || chatBusy) return;
+    const userMsg: ChatMessage = { role: "user", content: text };
+    const newMessages = [...chatMessages, userMsg];
+    setChatMessages(newMessages);
+    setChatInput("");
+    setChatBusy(true);
+
+    const sourceTextUrl = manifest?.formattedText?.url || manifest?.extractedText?.url || "";
+    const totalPages = manifest?.pages?.length || 0;
+    const totalAssets = manifest?.pages?.reduce((n, p) => n + (p.assets?.length || 0), 0) || 0;
+    const projectContext = manifest?.sourcePdf?.filename
+      ? `File: ${manifest.sourcePdf.filename}, ${totalPages} pages, ${totalAssets} extracted images`
+      : "";
+
+    try {
+      const res = await fetch("/api/projects/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          messages: newMessages,
+          provider: chatProvider,
+          sourceTextUrl,
+          projectContext,
+        }),
+      });
+      if (!res.ok || !res.body) {
+        const errText = await res.text();
+        setChatMessages((prev) => [...prev, { role: "assistant", content: `Error: ${errText}` }]);
+        setChatBusy(false);
+        return;
+      }
+      // Stream SSE
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let assistantText = "";
+      setChatMessages((prev) => [...prev, { role: "assistant", content: "" }]);
+
+      let buffer = "";
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
+        for (const line of lines) {
+          if (!line.startsWith("data: ")) continue;
+          const payload = line.slice(6);
+          if (payload === "[DONE]") break;
+          try {
+            const parsed = JSON.parse(payload) as { t?: string; error?: string };
+            if (parsed.error) { assistantText += parsed.error; }
+            else if (parsed.t) { assistantText += parsed.t; }
+          } catch { /* skip */ }
+        }
+        setChatMessages((prev) => {
+          const copy = [...prev];
+          copy[copy.length - 1] = { role: "assistant", content: assistantText };
+          return copy;
+        });
+      }
+    } catch (err) {
+      setChatMessages((prev) => [...prev, { role: "assistant", content: `Error: ${err instanceof Error ? err.message : String(err)}` }]);
+    } finally {
+      setChatBusy(false);
+    }
   }
 
   /* ── getCurrentSettingsContent ── */
@@ -2313,6 +2397,124 @@ export default function Page() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* ═══════ CHAT WIDGET ═══════ */}
+      {projectId && !startupOpen && (
+        <>
+          {/* Floating chat button */}
+          {!chatOpen && (
+            <button type="button" onClick={() => setChatOpen(true)}
+              style={{
+                position: "fixed", bottom: 24, right: 24, zIndex: 8000,
+                width: 56, height: 56, borderRadius: "50%",
+                background: "#1a1510", color: "#d4c5a9", border: "none",
+                cursor: "pointer", fontSize: 24, display: "flex",
+                alignItems: "center", justifyContent: "center",
+                boxShadow: "0 4px 20px rgba(0,0,0,0.3)",
+              }}>
+              💬
+            </button>
+          )}
+
+          {/* Chat panel */}
+          {chatOpen && (
+            <div style={{
+              position: "fixed", bottom: 24, right: 24, zIndex: 8000,
+              width: 400, maxWidth: "calc(100vw - 48px)", height: 520, maxHeight: "calc(100vh - 100px)",
+              background: "#fff", borderRadius: 16, border: "1px solid #e5e0d5",
+              boxShadow: "0 8px 40px rgba(0,0,0,0.2)",
+              display: "flex", flexDirection: "column", overflow: "hidden",
+            }}>
+              {/* Chat header */}
+              <div style={{
+                display: "flex", alignItems: "center", justifyContent: "space-between",
+                padding: "12px 16px", borderBottom: "1px solid #e5e0d5",
+                background: "#1a1510", color: "#d4c5a9", borderRadius: "16px 16px 0 0",
+              }}>
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <span style={{ fontSize: 14, fontWeight: 600 }}>Chat</span>
+                  <select
+                    value={chatProvider}
+                    onChange={(e) => setChatProvider(e.target.value as "gemini" | "claude")}
+                    style={{
+                      fontSize: 11, padding: "2px 6px", borderRadius: 4,
+                      background: "#2c2218", color: "#d4c5a9", border: "1px solid #4a3f30",
+                      cursor: "pointer",
+                    }}>
+                    <option value="gemini">Gemini</option>
+                    <option value="claude">Claude</option>
+                  </select>
+                </div>
+                <div style={{ display: "flex", gap: 6 }}>
+                  {chatMessages.length > 0 && (
+                    <button type="button"
+                      onClick={() => setChatMessages([])}
+                      style={{ background: "none", border: "none", color: "#8a7e6b", cursor: "pointer", fontSize: 11, padding: "2px 6px" }}>
+                      Clear
+                    </button>
+                  )}
+                  <button type="button" onClick={() => setChatOpen(false)}
+                    style={{ background: "none", border: "none", color: "#d4c5a9", cursor: "pointer", padding: 2 }}>
+                    <XIcon />
+                  </button>
+                </div>
+              </div>
+
+              {/* Messages */}
+              <div style={{ flex: 1, overflow: "auto", padding: 16, display: "flex", flexDirection: "column", gap: 12 }}>
+                {chatMessages.length === 0 && (
+                  <div style={{ textAlign: "center", color: "#8a7e6b", fontSize: 13, marginTop: 40 }}>
+                    <div style={{ fontSize: 32, marginBottom: 8 }}>📜</div>
+                    Ask anything about your source document
+                  </div>
+                )}
+                {chatMessages.map((msg, i) => (
+                  <div key={i} style={{
+                    alignSelf: msg.role === "user" ? "flex-end" : "flex-start",
+                    maxWidth: "85%",
+                    padding: "10px 14px", borderRadius: 12,
+                    background: msg.role === "user" ? "#1a1510" : "#f0ede7",
+                    color: msg.role === "user" ? "#d4c5a9" : "#1a1510",
+                    fontSize: 13, lineHeight: 1.5, whiteSpace: "pre-wrap", wordBreak: "break-word",
+                  }}>
+                    {msg.content || (chatBusy && i === chatMessages.length - 1 ? "..." : "")}
+                  </div>
+                ))}
+                <div ref={chatEndRef} />
+              </div>
+
+              {/* Input */}
+              <form onSubmit={(e) => { e.preventDefault(); sendChat(); }}
+                style={{
+                  display: "flex", gap: 8, padding: "12px 16px",
+                  borderTop: "1px solid #e5e0d5", background: "#faf8f5",
+                }}>
+                <input
+                  type="text"
+                  value={chatInput}
+                  onChange={(e) => setChatInput(e.target.value)}
+                  placeholder={chatBusy ? "Thinking..." : "Ask about the source..."}
+                  disabled={chatBusy}
+                  style={{
+                    flex: 1, padding: "10px 14px", fontSize: 13,
+                    border: "1px solid #e5e0d5", borderRadius: 8,
+                    outline: "none", background: "#fff", color: "#1a1510",
+                  }}
+                />
+                <button type="submit" disabled={chatBusy || !chatInput.trim()}
+                  style={{
+                    padding: "10px 16px", fontSize: 13, fontWeight: 600,
+                    background: chatBusy || !chatInput.trim() ? "#e5e0d5" : "#1a1510",
+                    color: chatBusy || !chatInput.trim() ? "#8a7e6b" : "#d4c5a9",
+                    border: "none", borderRadius: 8, cursor: chatBusy ? "not-allowed" : "pointer",
+                  }}>
+                  ↑
+                </button>
+              </form>
+            </div>
+          )}
+        </>
       )}
 
       {/* ═══════ ASSET DETAIL OVERLAY ═══════ */}
