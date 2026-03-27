@@ -782,6 +782,7 @@ export default function Page() {
   const [manifest, setManifest] = useState<Manifest | null>(null);
   const manifestRef = useRef<Manifest | null>(null);
   const manifestUrlRef = useRef("");
+  const projectIdRef = useRef("");
   const [lastError, setLastError] = useState("");
 
   /* ── UI panels ── */
@@ -1086,6 +1087,7 @@ export default function Page() {
   }
 
   /* Keep refs in sync */
+  useEffect(() => { projectIdRef.current = projectId; }, [projectId]);
   useEffect(() => { manifestUrlRef.current = manifestUrl; }, [manifestUrl]);
 
   /* Mount: load settings + restore project from URL */
@@ -1094,6 +1096,7 @@ export default function Page() {
     const { pid, m } = getUrlParams();
     if (pid && m) {
       setProjectId(pid);
+      projectIdRef.current = pid;
       setManifestUrl(m);
       manifestUrlRef.current = m;
       loadManifest(m)
@@ -1130,6 +1133,7 @@ export default function Page() {
     const j = (await r.json()) as { ok: boolean; projectId?: string; manifestUrl?: string; error?: string };
     if (!j.ok || !j.projectId || !j.manifestUrl) throw new Error(j.error || "Create project failed");
     setProjectId(j.projectId);
+    projectIdRef.current = j.projectId;
     setManifestUrl(j.manifestUrl);
     setUrlParams(j.projectId, j.manifestUrl);
     await loadManifest(j.manifestUrl);
@@ -1186,7 +1190,8 @@ export default function Page() {
     setLastError("");
     const mUrl = pipelineRunningRef.current ? manifestUrlRef.current : manifestUrl;
     const m = pipelineRunningRef.current ? manifestRef.current : manifest;
-    if (!projectId || !mUrl) return setLastError("Missing projectId/manifestUrl");
+    const pid = pipelineRunningRef.current ? projectIdRef.current : projectId;
+    if (!pid || !mUrl) return setLastError("Missing projectId/manifestUrl");
     if (!m?.sourcePdf?.url) return setLastError("No source PDF");
     if ((busy || rasterProgress.running) && !pipelineRunningRef.current) return;
 
@@ -1236,7 +1241,7 @@ export default function Page() {
         const batch = renderedPages.slice(i, i + UPLOAD_BATCH);
         const results = await Promise.all(batch.map(async (rp) => {
           const f = new File([rp.blob], `page-${rp.pageNumber}.png`, { type: "image/png" });
-          const uploaded = await upload(`projects/${projectId}/pages/page-${rp.pageNumber}.png`, f, {
+          const uploaded = await upload(`projects/${pid}/pages/page-${rp.pageNumber}.png`, f, {
             access: "public",
             handleUploadUrl: "/api/blob"
           });
@@ -1251,7 +1256,7 @@ export default function Page() {
       const r = await fetch("/api/projects/pages/record-bulk", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectId, manifestUrl: mUrl, pages: allPages })
+        body: JSON.stringify({ projectId: pid, manifestUrl: mUrl, pages: allPages })
       });
       if (!r.ok) throw new Error(await readErrorText(r));
       const j = (await r.json()) as { ok: boolean; manifestUrl?: string; error?: string };
@@ -1260,7 +1265,7 @@ export default function Page() {
       log(`All ${allPages.length} pages saved successfully`);
       setManifestUrl(j.manifestUrl);
       manifestUrlRef.current = j.manifestUrl;
-      setUrlParams(projectId, j.manifestUrl);
+      setUrlParams(pid, j.manifestUrl);
       await loadManifest(j.manifestUrl);
       await refreshProjects();
     } catch (e) {
@@ -1277,7 +1282,8 @@ export default function Page() {
     setLastError("");
     const mUrl = pipelineRunningRef.current ? manifestUrlRef.current : manifestUrl;
     const m = pipelineRunningRef.current ? manifestRef.current : manifest;
-    if (!projectId || !mUrl) return setLastError("Missing projectId/manifestUrl");
+    const pid = pipelineRunningRef.current ? projectIdRef.current : projectId;
+    if (!pid || !mUrl) return setLastError("Missing projectId/manifestUrl");
     if (!m?.pages?.length) return setLastError("No page PNGs — run Rasterize first");
     if ((busy || splitProgress.running) && !pipelineRunningRef.current) return;
 
@@ -1490,13 +1496,13 @@ export default function Page() {
           const batch = croppedAssets.slice(i, i + ASSET_BATCH);
           await Promise.all(batch.map(async (asset) => {
             const imageFile = new File([asset.pngBlob], `${asset.assetId}.png`, { type: "image/png" });
-            const uploaded = await upload(`projects/${projectId}/assets/p${page.pageNumber}/${asset.assetId}.png`, imageFile, {
+            const uploaded = await upload(`projects/${pid}/assets/p${page.pageNumber}/${asset.assetId}.png`, imageFile, {
               access: "public",
               handleUploadUrl: "/api/blob"
             });
 
             const metadata = { assetId: asset.assetId, pageNumber: page.pageNumber, url: uploaded.url, bbox: asset.bbox, title: asset.title, description: asset.description, category: asset.category, author: asset.author, metadata: asset.metadata, geo: asset.geo, geoPreserved: asset.geoPreserved, dateInfo: asset.dateInfo };
-            await upload(`projects/${projectId}/assets/p${page.pageNumber}/${asset.assetId}.meta.txt`,
+            await upload(`projects/${pid}/assets/p${page.pageNumber}/${asset.assetId}.meta.txt`,
               new File([JSON.stringify(metadata)], `${asset.assetId}.meta.txt`, { type: "text/plain" }), {
               access: "public",
               handleUploadUrl: "/api/blob"
@@ -1512,7 +1518,7 @@ export default function Page() {
       const buildRes = await fetch("/api/projects/assets/build-manifest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectId, manifestUrl: mUrl })
+        body: JSON.stringify({ projectId: pid, manifestUrl: mUrl })
       });
       if (!buildRes.ok) throw new Error(await readErrorText(buildRes));
       const buildResult = (await buildRes.json()) as { ok: boolean; manifestUrl?: string; assetsFound?: number; error?: string };
@@ -1520,7 +1526,7 @@ export default function Page() {
 
       setManifestUrl(buildResult.manifestUrl);
       manifestUrlRef.current = buildResult.manifestUrl;
-      setUrlParams(projectId, buildResult.manifestUrl);
+      setUrlParams(pid, buildResult.manifestUrl);
       await loadManifest(buildResult.manifestUrl);
       log(`Built manifest with ${buildResult.assetsFound} assets`);
 
@@ -1628,6 +1634,7 @@ export default function Page() {
       if (!r.ok) throw new Error(await readErrorText(r));
       if (targetProjectId === projectId) {
         setProjectId("");
+        projectIdRef.current = "";
         setManifestUrl("");
         setManifest(null);
         clearUrlParams();
@@ -1697,7 +1704,7 @@ export default function Page() {
     }
     function saveCheckpoint(completedStep: PipelineStep) {
       try {
-        localStorage.setItem("alexandria-pipeline-checkpoint", JSON.stringify({ projectId, manifestUrl: manifestUrlRef.current, completedStep, timestamp: Date.now() }));
+        localStorage.setItem("alexandria-pipeline-checkpoint", JSON.stringify({ projectId: projectIdRef.current, manifestUrl: manifestUrlRef.current, completedStep, timestamp: Date.now() }));
       } catch { /* ignore */ }
     }
     function clearCheckpoint() {
@@ -1773,6 +1780,7 @@ export default function Page() {
   async function openProject(p: ProjectRow) {
     setLastError("");
     setProjectId(p.projectId);
+    projectIdRef.current = p.projectId;
     setManifestUrl(p.manifestUrl);
     setUrlParams(p.projectId, p.manifestUrl);
     try {
@@ -1885,7 +1893,7 @@ export default function Page() {
       }}>
         <div style={{ display: "flex", alignItems: "center", gap: 16 }}>
           <h1
-            onClick={() => { setProjectId(""); setManifestUrl(""); setManifest(null); clearUrlParams(); setStartupOpen(true); }}
+            onClick={() => { setProjectId(""); projectIdRef.current = ""; setManifestUrl(""); setManifest(null); clearUrlParams(); setStartupOpen(true); }}
             style={{ fontSize: 20, fontWeight: 300, letterSpacing: 6, margin: 0, cursor: "pointer" }}
           >ALEXANDRIA</h1>
           {manifest?.sourcePdf?.filename && (
