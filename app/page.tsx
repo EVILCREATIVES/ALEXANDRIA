@@ -794,16 +794,16 @@ export default function Page() {
     }
   }
 
-  async function enrichAssets() {
+  async function enrichAssets(force = false) {
     if (!projectId || !manifestUrl) return;
     setEnrichBusy(true);
     setLastError("");
-    log("Starting geo/timeline enrichment...");
+    log(force ? "Starting FULL re-enrichment (force mode)..." : "Starting geo/timeline enrichment...");
     try {
       const res = await fetch("/api/projects/assets/enrich", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectId, manifestUrl })
+        body: JSON.stringify({ projectId, manifestUrl, force })
       });
       if (!res.ok) throw new Error(await readErrorText(res));
       const data = (await res.json()) as { ok: boolean; enriched?: number; total?: number; manifestUrl?: string; error?: string; errors?: string[] };
@@ -1702,6 +1702,10 @@ export default function Page() {
                       <button type="button" onClick={() => enrichAssets()} disabled={!!busy || enrichBusy}
                         style={{ padding: "6px 14px", fontSize: 12, background: "#065f46", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", fontWeight: 500 }}>
                         {enrichBusy ? "Enriching..." : "🔍 Enrich Geo/Timeline"}
+                      </button>
+                      <button type="button" onClick={() => enrichAssets(true)} disabled={!!busy || enrichBusy}
+                        style={{ padding: "6px 14px", fontSize: 12, background: "#854d0e", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", fontWeight: 500 }}>
+                        {enrichBusy ? "Enriching..." : "🔄 Re-Enrich All"}
                       </button>
                     </div>
 

@@ -70,6 +70,7 @@ RULES — BE GENEROUS, NOT CONSERVATIVE:
 interface EnrichRequest {
   projectId: string;
   manifestUrl: string;
+  force?: boolean;
 }
 
 export async function POST(req: NextRequest): Promise<Response> {
@@ -84,7 +85,7 @@ export async function POST(req: NextRequest): Promise<Response> {
     return NextResponse.json({ ok: false, error: "Invalid JSON" }, { status: 400 });
   }
 
-  const { projectId, manifestUrl } = body;
+  const { projectId, manifestUrl, force } = body;
   if (!projectId || !manifestUrl) {
     return NextResponse.json({ ok: false, error: "Missing projectId or manifestUrl" }, { status: 400 });
   }
@@ -132,8 +133,10 @@ export async function POST(req: NextRequest): Promise<Response> {
   for (const page of manifest.pages || []) {
     let hasUnenriched = false;
     for (const asset of page.assets || []) {
-      if ((asset as Record<string, unknown>)._enriched) continue;
-      if (asset.geo || asset.dateInfo) continue;
+      if (!force) {
+        if ((asset as Record<string, unknown>)._enriched) continue;
+        if (asset.geo || asset.dateInfo) continue;
+      }
       const arr = byPage.get(page.pageNumber) || [];
       arr.push(asset);
       byPage.set(page.pageNumber, arr);
@@ -143,6 +146,10 @@ export async function POST(req: NextRequest): Promise<Response> {
     if (hasUnenriched) {
       pageUrlMap.set(page.pageNumber, page.url);
     }
+  }
+
+  if (force) {
+    console.log(`[enrich] FORCE mode: re-enriching all ${totalUnenriched} assets`);
   }
 
   if (totalUnenriched === 0) {
