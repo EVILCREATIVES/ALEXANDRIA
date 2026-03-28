@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { upload } from "@vercel/blob/client";
 import { DEFAULT_DETECTION_RULES } from "./lib/default-templates";
 
@@ -773,6 +774,7 @@ function SettingsTabs({
    MAIN COMPONENT
    ═══════════════════════════════════════════════════════════════════════════════ */
 export default function Page() {
+  const router = useRouter();
   const fileRef = useRef<HTMLInputElement>(null);
 
   /* ── Core state ── */
@@ -1639,6 +1641,7 @@ export default function Page() {
         setManifestUrl("");
         setManifest(null);
         clearUrlParams();
+        router.push("/");
       }
       await refreshProjects();
     } catch (e) {
