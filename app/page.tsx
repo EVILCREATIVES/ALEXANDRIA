@@ -1095,6 +1095,7 @@ export default function Page() {
     loadGlobalSettings().catch(() => {});
     const { pid, m } = getUrlParams();
     if (pid && m) {
+      setStartupOpen(false);
       setProjectId(pid);
       projectIdRef.current = pid;
       setManifestUrl(m);
@@ -1647,6 +1648,35 @@ export default function Page() {
     }
   }
 
+  async function deleteSource(sourceId: string, filename: string) {
+    if (!projectId || !manifestUrl) return;
+    if (!window.confirm(`Delete source "${filename}"? If this is the active source, extracted pages/images/text will also be cleared.`)) return;
+
+    setLastError("");
+    setBusy("Deleting source...");
+    try {
+      const mUrl = manifestUrlRef.current || manifestUrl;
+      const r = await fetch("/api/projects/sources/delete", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId, manifestUrl: mUrl, sourceId })
+      });
+      const j = (await r.json()) as { ok: boolean; manifestUrl?: string; error?: string };
+      if (!r.ok || !j.ok || !j.manifestUrl) throw new Error(j.error || "Delete source failed");
+
+      setManifestUrl(j.manifestUrl);
+      manifestUrlRef.current = j.manifestUrl;
+      setUrlParams(projectId, j.manifestUrl);
+      await loadManifest(j.manifestUrl);
+      await refreshProjects();
+      log(`Deleted source: ${filename}`);
+    } catch (e) {
+      setLastError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setBusy("");
+    }
+  }
+
   async function deleteAsset(pageNumber: number, assetId: string) {
     if (!projectId || !manifestUrl) return;
     const key = `${pageNumber}-${assetId}`;
@@ -1867,17 +1897,31 @@ export default function Page() {
                   ))}
                 </select>
                 {selectedStartupProject && (
-                  <button
-                    type="button"
-                    onClick={openStartupPreviousProject}
-                    style={{
-                      width: "100%", padding: "10px 0", fontSize: 14,
-                      background: "transparent", color: "#d4c5a9", border: "1px solid #4a3f30",
-                      borderRadius: 6, cursor: "pointer"
-                    }}
-                  >
-                    Open Archive
-                  </button>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button
+                      type="button"
+                      onClick={openStartupPreviousProject}
+                      style={{
+                        flex: 1, padding: "10px 0", fontSize: 14,
+                        background: "transparent", color: "#d4c5a9", border: "1px solid #4a3f30",
+                        borderRadius: 6, cursor: "pointer"
+                      }}
+                    >
+                      Open Archive
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => deleteProject(selectedStartupProject.projectId)}
+                      disabled={projectsBusy}
+                      style={{
+                        padding: "10px 14px", fontSize: 13,
+                        background: "transparent", color: "#fca5a5", border: "1px solid #7f1d1d",
+                        borderRadius: 6, cursor: projectsBusy ? "not-allowed" : "pointer"
+                      }}
+                    >
+                      Delete
+                    </button>
+                  </div>
                 )}
               </div>
             )}
@@ -1909,6 +1953,10 @@ export default function Page() {
             <button type="button" onClick={() => setSettingsOpen(true)}
               style={{ padding: "6px 14px", fontSize: 12, background: "transparent", color: "#d4c5a9", border: "1px solid #4a3f30", borderRadius: 6, cursor: "pointer" }}>
               Settings
+            </button>
+            <button type="button" onClick={() => deleteProject(projectId)} disabled={projectsBusy}
+              style={{ padding: "6px 14px", fontSize: 12, background: "transparent", color: "#fca5a5", border: "1px solid #7f1d1d", borderRadius: 6, cursor: projectsBusy ? "not-allowed" : "pointer" }}>
+              Delete Project
             </button>
           </div>
         )}
@@ -2358,32 +2406,7 @@ export default function Page() {
                         </div>
                       </div>
                       <button type="button"
-                        onClick={async () => {
-                          if (!window.confirm(`Delete source "${src.filename}" and all its images? This cannot be undone.`)) return;
-                          setSourcesOpen(false);
-                          setBusy("Deleting source...");
-                          try {
-                            // Delete all assets, remove source from manifest
-                            const mUrl = manifestUrlRef.current || manifestUrl;
-                            const r = await fetch("/api/projects/assets/delete-all", {
-                              method: "POST",
-                              headers: { "Content-Type": "application/json" },
-                              body: JSON.stringify({ projectId, manifestUrl: mUrl })
-                            });
-                            const j = (await r.json()) as { ok: boolean; manifestUrl?: string; error?: string };
-                            if (!r.ok || !j.ok || !j.manifestUrl) throw new Error(j.error || "Delete failed");
-                            setManifestUrl(j.manifestUrl);
-                            manifestUrlRef.current = j.manifestUrl;
-                            setUrlParams(projectId, j.manifestUrl);
-                            await loadManifest(j.manifestUrl);
-                            await refreshProjects();
-                            log(`Deleted source: ${src.filename}`);
-                          } catch (e) {
-                            setLastError(e instanceof Error ? e.message : String(e));
-                          } finally {
-                            setBusy("");
-                          }
-                        }}
+                        onClick={() => deleteSource(src.sourceId, src.filename)}
                         style={{
                           background: "none", border: "none", cursor: "pointer", color: "#dc2626",
                           padding: "6px 10px", borderRadius: 4
@@ -2394,6 +2417,14 @@ export default function Page() {
                   ))}
                 </div>
               )}
+              <button type="button" onClick={() => { setSourcesOpen(false); deleteProject(projectId); }} disabled={projectsBusy}
+                style={{
+                  marginTop: 12, padding: "10px 20px", fontSize: 13, fontWeight: 600,
+                  background: "#fff", color: "#dc2626", border: "1px solid #fca5a5", borderRadius: 6,
+                  cursor: projectsBusy ? "not-allowed" : "pointer", width: "100%"
+                }}>
+                Delete This Project
+              </button>
               <button type="button" onClick={() => { setSourcesOpen(false); fileRef.current?.click(); }}
                 style={{
                   marginTop: 16, padding: "10px 20px", fontSize: 13, fontWeight: 600,
