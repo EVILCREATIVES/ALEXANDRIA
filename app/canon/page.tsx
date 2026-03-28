@@ -543,10 +543,11 @@ function Field({ label, value, onChange, multiline, placeholder, color }: {
   );
 }
 
-function BulletField({ label, items, onChange, placeholder, color }: {
+function BulletField({ label, items: rawItems, onChange, placeholder, color }: {
   label: string; items: string[]; onChange: (items: string[]) => void;
   placeholder?: string; color?: string;
 }) {
+  const items = Array.isArray(rawItems) ? rawItems : [];
   return (
     <div style={{ marginBottom: 16 }}>
       <label style={{
@@ -705,7 +706,7 @@ function CharactersPanel({ characters, update }: { characters: CanonCharacter[];
         <ExpandableItem
           key={ch.characterId}
           title={ch.name}
-          subtitle={`${ch.roleType} ${ch.storyFunctionTags.length > 0 ? "— " + ch.storyFunctionTags.join(", ") : ""}`}
+          subtitle={`${ch.roleType} ${ch.storyFunctionTags?.length > 0 ? "— " + ch.storyFunctionTags.join(", ") : ""}`}
           icon={ROLE_ICONS[ch.roleType] || <Users size={16} />}
           color={color}
           expanded={expanded === ch.characterId}
@@ -786,7 +787,7 @@ function LocationsPanel({ locations, update }: { locations: CanonLocation[]; upd
         <ExpandableItem
           key={loc.locationId}
           title={loc.name}
-          subtitle={loc.locationType ? `${loc.locationType} ${loc.roles.length > 0 ? "— " + loc.roles.join(", ") : ""}` : undefined}
+          subtitle={loc.locationType ? `${loc.locationType} ${loc.roles?.length > 0 ? "— " + loc.roles.join(", ") : ""}` : undefined}
           icon={<MapPin size={16} />}
           color={color}
           expanded={expanded === loc.locationId}
