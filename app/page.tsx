@@ -914,6 +914,16 @@ export default function Page() {
     [projects, startupProjectId]
   );
 
+  /** Wrapper around fetch that includes the endpoint in error messages */
+  async function apiFetch(url: string, init?: RequestInit): Promise<Response> {
+    try {
+      return await fetch(url, init);
+    } catch (e) {
+      const method = init?.method || "GET";
+      throw new Error(`${method} ${url} — ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
   function log(msg: string) {
     const ts = new Date().toLocaleTimeString();
     setDebugLog((prev) => [...prev, `[${ts}] ${msg}`]);
@@ -937,7 +947,7 @@ export default function Page() {
       : "";
 
     try {
-      const res = await fetch("/api/projects/chat", {
+      const res = await apiFetch("/api/projects/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1021,7 +1031,7 @@ export default function Page() {
     setSettingsBusy(true);
     setSettingsError("");
     try {
-      const r = await fetch("/api/projects/settings/save", {
+      const r = await apiFetch("/api/projects/settings/save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -1063,7 +1073,7 @@ export default function Page() {
      ════════════════════════════════════════════════════════════════════════════ */
 
   async function loadManifest(url: string) {
-    const mRes = await fetch("/api/projects/manifest/read", {
+    const mRes = await apiFetch("/api/projects/manifest/read", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ manifestUrl: url })
@@ -1094,7 +1104,7 @@ export default function Page() {
   async function refreshProjects() {
     setProjectsBusy(true);
     try {
-      const r = await fetch("/api/projects/list", { cache: "no-store" });
+      const r = await apiFetch("/api/projects/list", { cache: "no-store" });
       if (!r.ok) throw new Error(await readErrorText(r));
       const j = (await r.json()) as { ok: boolean; projects?: ProjectRow[]; error?: string };
       if (!j.ok || !Array.isArray(j.projects)) throw new Error(j.error || "Bad /list response");
@@ -1108,7 +1118,7 @@ export default function Page() {
 
   async function loadGlobalSettings() {
     try {
-      const res = await fetch("/api/projects/settings/load", { cache: "no-store" });
+      const res = await apiFetch("/api/projects/settings/load", { cache: "no-store" });
       if (!res.ok) return;
       const data = (await res.json()) as {
         ok: boolean;
@@ -1135,7 +1145,7 @@ export default function Page() {
     setThumbnailsBusy(true);
     log("Starting thumbnail generation...");
     try {
-      const res = await fetch("/api/projects/assets/generate-thumbnails", {
+      const res = await apiFetch("/api/projects/assets/generate-thumbnails", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ projectId, manifestUrl })
@@ -1202,7 +1212,7 @@ export default function Page() {
   }, []);
 
   async function createProject() {
-    const r = await fetch("/api/projects/create", { method: "POST" });
+    const r = await apiFetch("/api/projects/create", { method: "POST" });
     if (!r.ok) throw new Error(`Create project failed: ${await readErrorText(r)}`);
     const j = (await r.json()) as { ok: boolean; projectId?: string; manifestUrl?: string; error?: string };
     if (!j.ok || !j.projectId || !j.manifestUrl) throw new Error(j.error || "Create project failed");
@@ -1242,7 +1252,7 @@ export default function Page() {
         access: "public",
         handleUploadUrl: "/api/blob"
       });
-      const r = await fetch("/api/projects/record-source", {
+      const r = await apiFetch("/api/projects/record-source", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ projectId: pid, manifestUrl: mUrl, sourcePdfUrl: blob.url, filename: file.name, sourceId })
@@ -1327,7 +1337,7 @@ export default function Page() {
       }
 
       log(`Saving ${allPages.length} pages to manifest...`);
-      const r = await fetch("/api/projects/pages/record-bulk", {
+      const r = await apiFetch("/api/projects/pages/record-bulk", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ projectId: pid, manifestUrl: mUrl, pages: allPages })
@@ -1384,7 +1394,7 @@ export default function Page() {
           setSplitProgress((s) => ({ ...s, page: Math.max(s.page, page.pageNumber) }));
           log(`Detecting on page ${page.pageNumber}...`);
 
-          const detectRes = await fetch("/api/projects/assets/detect-gemini", {
+          const detectRes = await apiFetch("/api/projects/assets/detect-gemini", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({
@@ -1589,7 +1599,7 @@ export default function Page() {
       }
 
       log("=== Building manifest from metadata ===");
-      const buildRes = await fetch("/api/projects/assets/build-manifest", {
+      const buildRes = await apiFetch("/api/projects/assets/build-manifest", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ projectId: pid, manifestUrl: mUrl })
@@ -1622,7 +1632,7 @@ export default function Page() {
     if (!projectId || !manifestUrl) return;
     setBusy("Rebuilding assets...");
     try {
-      const r = await fetch("/api/projects/assets/rebuild-index", {
+      const r = await apiFetch("/api/projects/assets/rebuild-index", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ projectId, manifestUrl })
@@ -1646,7 +1656,7 @@ export default function Page() {
     setBusy("Restoring from blob storage...");
     log("Starting restore from blob storage...");
     try {
-      const r = await fetch("/api/projects/restore", {
+      const r = await apiFetch("/api/projects/restore", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ projectId, manifestUrl })
@@ -1674,7 +1684,7 @@ export default function Page() {
     setBusy("Deleting all images...");
     log("Deleting all assets...");
     try {
-      const r = await fetch("/api/projects/assets/delete-all", {
+      const r = await apiFetch("/api/projects/assets/delete-all", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ projectId, manifestUrl })
@@ -1700,7 +1710,7 @@ export default function Page() {
     setLastError("");
     setProjectsBusy(true);
     try {
-      const r = await fetch("/api/projects/delete", {
+      const r = await apiFetch("/api/projects/delete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ projectId: targetProjectId })
@@ -1730,7 +1740,7 @@ export default function Page() {
     setBusy("Deleting source...");
     try {
       const mUrl = manifestUrlRef.current || manifestUrl;
-      const r = await fetch("/api/projects/sources/delete", {
+      const r = await apiFetch("/api/projects/sources/delete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ projectId, manifestUrl: mUrl, sourceId })
@@ -1773,7 +1783,7 @@ export default function Page() {
     });
 
     try {
-      const r = await fetch("/api/projects/assets/delete", {
+      const r = await apiFetch("/api/projects/assets/delete", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ projectId, manifestUrl, pageNumber, assetId })
