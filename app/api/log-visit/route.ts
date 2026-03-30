@@ -83,6 +83,10 @@ export async function GET(req: Request): Promise<Response> {
 
     const logs = (await res.json()) as VisitLog[];
 
+    if (!Array.isArray(logs)) {
+      return NextResponse.json({ logs: [], message: "Invalid log format" });
+    }
+
     // Return with summary
     const uniqueIPs = new Set(logs.map(l => l.ip));
     const byCountry: Record<string, number> = {};

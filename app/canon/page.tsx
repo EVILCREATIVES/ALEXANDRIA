@@ -304,16 +304,16 @@ export default function CanonPage() {
               >
                 {d.icon}
                 {d.label}
-                {d.key === "characters" && manifest.characters.length > 0 && (
+                {d.key === "characters" && (manifest.characters?.length ?? 0) > 0 && (
                   <span style={{ marginLeft: "auto", fontSize: 11, opacity: 0.6 }}>{manifest.characters.length}</span>
                 )}
-                {d.key === "locations" && manifest.locations.length > 0 && (
+                {d.key === "locations" && (manifest.locations?.length ?? 0) > 0 && (
                   <span style={{ marginLeft: "auto", fontSize: 11, opacity: 0.6 }}>{manifest.locations.length}</span>
                 )}
-                {d.key === "factions" && manifest.factions.length > 0 && (
+                {d.key === "factions" && (manifest.factions?.length ?? 0) > 0 && (
                   <span style={{ marginLeft: "auto", fontSize: 11, opacity: 0.6 }}>{manifest.factions.length}</span>
                 )}
-                {d.key === "publications" && manifest.publications.length > 0 && (
+                {d.key === "publications" && (manifest.publications?.length ?? 0) > 0 && (
                   <span style={{ marginLeft: "auto", fontSize: 11, opacity: 0.6 }}>{manifest.publications.length}</span>
                 )}
               </button>
@@ -352,13 +352,13 @@ export default function CanonPage() {
             transition={{ duration: 0.2 }}
           >
             {activeDomain === "overview" && <OverviewPanel overview={manifest.overview} update={update} />}
-            {activeDomain === "characters" && <CharactersPanel characters={manifest.characters} update={update} />}
-            {activeDomain === "locations" && <LocationsPanel locations={manifest.locations} update={update} />}
+            {activeDomain === "characters" && <CharactersPanel characters={manifest.characters || []} update={update} />}
+            {activeDomain === "locations" && <LocationsPanel locations={manifest.locations || []} update={update} />}
             {activeDomain === "lore" && <LorePanel lore={manifest.lore} update={update} />}
-            {activeDomain === "factions" && <FactionsPanel factions={manifest.factions} update={update} />}
+            {activeDomain === "factions" && <FactionsPanel factions={manifest.factions || []} update={update} />}
             {activeDomain === "tone" && <TonePanel tone={manifest.tone} update={update} />}
             {activeDomain === "style" && <StylePanel style={manifest.style} update={update} />}
-            {activeDomain === "publications" && <PublicationsPanel publications={manifest.publications} update={update} />}
+            {activeDomain === "publications" && <PublicationsPanel publications={manifest.publications || []} update={update} />}
           </motion.div>
         </AnimatePresence>
       </main>
@@ -857,7 +857,7 @@ function LorePanel({ lore, update }: { lore: CanonLore; update: (fn: (m: CanonMa
       <h3 style={{ fontSize: 16, fontWeight: 600, color: "#777", marginBottom: 16, letterSpacing: "0.08em" }}>
         LORE ENTRIES
       </h3>
-      {lore.entries.map((entry, i) => (
+      {(lore.entries || []).map((entry, i) => (
         <ExpandableItem
           key={entry.entryId}
           title={entry.name}

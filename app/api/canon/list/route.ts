@@ -46,6 +46,7 @@ async function safeFetch(url: string): Promise<CanonManifestPartial | null> {
 }
 
 export async function GET(): Promise<Response> {
+  try {
   const manifestBlobs: Array<{ url: string; pathname: string }> = [];
   let cursor: string | undefined;
 
@@ -81,4 +82,8 @@ export async function GET(): Promise<Response> {
 
   rows.sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime());
   return NextResponse.json({ ok: true, canons: rows });
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return NextResponse.json({ ok: false, error: msg }, { status: 500 });
+  }
 }

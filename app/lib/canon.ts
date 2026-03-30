@@ -250,5 +250,35 @@ export async function fetchCanonManifest(url: string): Promise<CanonManifest> {
     headers: { "Cache-Control": "no-cache" },
   });
   if (!res.ok) throw new Error(`Failed to fetch canon manifest: ${res.statusText}`);
-  return (await res.json()) as CanonManifest;
+  const raw = (await res.json()) as Partial<CanonManifest>;
+  // Ensure all required arrays exist (older manifests may lack newer fields)
+  const defaults = newCanonManifest(raw.canonId || "", raw.title || "");
+  return {
+    ...defaults,
+    ...raw,
+    characters: Array.isArray(raw.characters) ? raw.characters : [],
+    locations: Array.isArray(raw.locations) ? raw.locations : [],
+    factions: Array.isArray(raw.factions) ? raw.factions : [],
+    publications: Array.isArray(raw.publications) ? raw.publications : [],
+    lore: {
+      ...defaults.lore,
+      ...(raw.lore || {}),
+      entries: Array.isArray(raw.lore?.entries) ? raw.lore.entries : [],
+    },
+    tone: {
+      ...defaults.tone,
+      ...(raw.tone || {}),
+      genreSignals: Array.isArray(raw.tone?.genreSignals) ? raw.tone.genreSignals : [],
+      whatToExpect: Array.isArray(raw.tone?.whatToExpect) ? raw.tone.whatToExpect : [],
+      audienceHooks: Array.isArray(raw.tone?.audienceHooks) ? raw.tone.audienceHooks : [],
+      reality: Array.isArray(raw.tone?.reality) ? raw.tone.reality : [],
+      whatItIsNot: Array.isArray(raw.tone?.whatItIsNot) ? raw.tone.whatItIsNot : [],
+    },
+    style: {
+      ...defaults.style,
+      ...(raw.style || {}),
+      signsAndSymbols: Array.isArray(raw.style?.signsAndSymbols) ? raw.style.signsAndSymbols : [],
+      boundaries: Array.isArray(raw.style?.boundaries) ? raw.style.boundaries : [],
+    },
+  };
 }
