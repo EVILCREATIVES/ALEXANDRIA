@@ -19,7 +19,11 @@ type AssetMetadata = {
   title?: string;
   description?: string;
   category?: string;
+  author?: string;
   metadata?: Record<string, string>;
+  geo?: { lat: number; lng: number; placeName?: string; continent?: string; country?: string; region?: string; city?: string };
+  geoPreserved?: { lat: number; lng: number; placeName?: string; continent?: string; country?: string; region?: string; city?: string };
+  dateInfo?: { date?: string; era?: string; label?: string };
 };
 
 type ListResult = {
@@ -103,7 +107,11 @@ export async function POST(req: Request): Promise<Response> {
         title: meta.title,
         description: meta.description,
         category: meta.category,
+        author: meta.author,
         metadata: meta.metadata,
+        geo: meta.geo || undefined,
+        geoPreserved: meta.geoPreserved || undefined,
+        dateInfo: meta.dateInfo || undefined,
       };
 
       const existing = pageAssets.get(meta.pageNumber) || [];
@@ -143,6 +151,12 @@ export async function POST(req: Request): Promise<Response> {
           title: a.title || existing?.title,
           description: a.description || existing?.description,
           category: a.category || existing?.category,
+          author: a.author || existing?.author,
+          metadata: (a.metadata && Object.keys(a.metadata).length > 0) ? a.metadata : existing?.metadata,
+          // Preserve enrichment data
+          geo: a.geo || existing?.geo,
+          geoPreserved: a.geoPreserved || existing?.geoPreserved,
+          dateInfo: a.dateInfo || existing?.dateInfo,
           // Preserve existing tags
           tags: existing?.tags,
           negativeTags: existing?.negativeTags,

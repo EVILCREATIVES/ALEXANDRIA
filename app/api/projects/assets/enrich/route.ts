@@ -209,7 +209,7 @@ export async function POST(req: NextRequest): Promise<Response> {
         if (asset.title) textBlock += `\n  title: "${asset.title}"`;
         if (asset.description) textBlock += `\n  description: "${asset.description}"`;
         if (asset.category) textBlock += `\n  category: "${asset.category}"`;
-        if (asset.metadata) {
+        if (asset.metadata && typeof asset.metadata === "object") {
           const metaStr = Object.entries(asset.metadata).map(([k, v]) => `${k}: ${v}`).join("; ");
           if (metaStr) textBlock += `\n  metadata: {${metaStr}}`;
         }

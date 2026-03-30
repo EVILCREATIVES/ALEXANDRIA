@@ -1,9 +1,46 @@
 "use client";
 
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { Component, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { upload } from "@vercel/blob/client";
 import { DEFAULT_DETECTION_RULES } from "./lib/default-templates";
+
+/* ───────── Error Boundary to catch & display render crashes ───────── */
+class ErrorBoundary extends Component<
+  { children: React.ReactNode },
+  { error: Error | null; info: string }
+> {
+  constructor(props: { children: React.ReactNode }) {
+    super(props);
+    this.state = { error: null, info: "" };
+  }
+  static getDerivedStateFromError(error: Error) {
+    return { error };
+  }
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    console.error("🔴 ErrorBoundary caught:", error, info.componentStack);
+    this.setState({ info: info.componentStack || "" });
+  }
+  render() {
+    if (this.state.error) {
+      return (
+        <div style={{ padding: 40, fontFamily: "monospace", background: "#1a0000", color: "#ff6b6b", minHeight: "100vh" }}>
+          <h2 style={{ color: "#ff4444" }}>⚠️ Render Error Caught</h2>
+          <pre style={{ whiteSpace: "pre-wrap", fontSize: 14, lineHeight: 1.6 }}>
+            <strong>Message:</strong> {this.state.error.message}{"\n\n"}
+            <strong>Stack:</strong>{"\n"}{this.state.error.stack}{"\n\n"}
+            <strong>Component Stack:</strong>{"\n"}{this.state.info}
+          </pre>
+          <button onClick={() => this.setState({ error: null, info: "" })}
+            style={{ marginTop: 20, padding: "10px 20px", cursor: "pointer", background: "#ff4444", color: "#fff", border: "none", borderRadius: 6, fontSize: 14 }}>
+            Try Again
+          </button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
+}
 
 /* ───────── Types ───────── */
 type AssetBBox = { x: number; y: number; w: number; h: number };
@@ -851,6 +888,27 @@ export default function Page() {
     chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [chatMessages]);
 
+  // ── Global error catcher: captures uncaught errors with full stack traces ──
+  useEffect(() => {
+    const onError = (event: ErrorEvent) => {
+      const msg = `🔴 UNCAUGHT ERROR: ${event.message}\nFile: ${event.filename}:${event.lineno}:${event.colno}\nStack: ${event.error?.stack || "N/A"}`;
+      console.error(msg);
+      setLastError(msg);
+    };
+    const onRejection = (event: PromiseRejectionEvent) => {
+      const err = event.reason;
+      const msg = `🔴 UNHANDLED PROMISE: ${err instanceof Error ? `${err.message}\nStack: ${err.stack}` : String(err)}`;
+      console.error(msg);
+      setLastError(msg);
+    };
+    window.addEventListener("error", onError);
+    window.addEventListener("unhandledrejection", onRejection);
+    return () => {
+      window.removeEventListener("error", onError);
+      window.removeEventListener("unhandledrejection", onRejection);
+    };
+  }, []);
+
   const selectedStartupProject = useMemo(
     () => projects.find((p) => p.projectId === startupProjectId) || null,
     [projects, startupProjectId]
@@ -1015,6 +1073,19 @@ export default function Page() {
     if (!payload.ok || !payload.manifest) throw new Error(payload.error || "Bad manifest read response");
 
     const m = payload.manifest;
+    // Normalize: ensure pages and nested arrays are never undefined
+    if (m.pages) {
+      for (const p of m.pages) {
+        if (!Array.isArray(p.assets)) p.assets = [];
+        if (!Array.isArray(p.deletedAssetIds)) p.deletedAssetIds = [];
+        for (const a of p.assets) {
+          if (a.tags && !Array.isArray(a.tags)) a.tags = [];
+          if (a.negativeTags && !Array.isArray(a.negativeTags)) a.negativeTags = [];
+          if (a.metadata && typeof a.metadata !== "object") a.metadata = undefined;
+        }
+      }
+    }
+    if (!Array.isArray(m.sources)) m.sources = [];
     setManifest(m);
     manifestRef.current = m;
     return m;
@@ -1853,6 +1924,7 @@ export default function Page() {
      RENDER
      ════════════════════════════════════════════════════════════════════════════ */
   return (
+    <ErrorBoundary>
     <div style={{ fontFamily: "'Inter', system-ui, sans-serif", minHeight: "100vh", background: "#f8f6f3", color: "#1a1a1a" }}>
 
       {/* ═══════ STARTUP SCREEN ═══════ */}
@@ -2573,5 +2645,6 @@ export default function Page() {
         }}
       />
     </div>
+    </ErrorBoundary>
   );
 }

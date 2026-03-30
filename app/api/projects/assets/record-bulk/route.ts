@@ -80,17 +80,24 @@ export async function POST(req: Request): Promise<Response> {
     for (const a of incoming) {
       // Respect tombstones: never resurrect a deleted assetId.
       if (deleted.has(a.assetId)) continue;
+      const existing = byId.get(a.assetId);
       const merged: PageAsset = {
         assetId: a.assetId,
         url: a.url,
         bbox: a.bbox,
-        tags: Array.isArray(a.tags) ? a.tags : byId.get(a.assetId)?.tags,
-        title: a.title || byId.get(a.assetId)?.title,
-        description: a.description || byId.get(a.assetId)?.description,
-        category: a.category || byId.get(a.assetId)?.category,
+        tags: Array.isArray(a.tags) ? a.tags : existing?.tags,
+        title: a.title || existing?.title,
+        description: a.description || existing?.description,
+        category: a.category || existing?.category,
         metadata: a.metadata && Object.keys(a.metadata).length > 0
           ? a.metadata
-          : byId.get(a.assetId)?.metadata,
+          : existing?.metadata,
+        // Preserve enrichment data
+        author: existing?.author,
+        geo: existing?.geo,
+        geoPreserved: existing?.geoPreserved,
+        dateInfo: existing?.dateInfo,
+        thumbnailUrl: existing?.thumbnailUrl,
       };
       byId.set(a.assetId, merged);
     }

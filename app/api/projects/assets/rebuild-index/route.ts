@@ -138,6 +138,11 @@ export async function POST(req: Request): Promise<Response> {
             title: prev?.title,
             description: prev?.description,
             category: prev?.category,
+            author: prev?.author,
+            metadata: prev?.metadata,
+            geo: prev?.geo,
+            geoPreserved: prev?.geoPreserved,
+            dateInfo: prev?.dateInfo,
             thumbnailUrl: prev?.thumbnailUrl
           };
         })
