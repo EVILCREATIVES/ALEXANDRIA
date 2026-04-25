@@ -64,8 +64,9 @@ export async function POST(req: Request): Promise<Response> {
 
     if (deletingActiveSource) {
       const derivedUrls = collectDerivedUrls(manifest);
-      if (derivedUrls.length > 0) {
-        await del(derivedUrls);
+      const CHUNK = 1000;
+      for (let i = 0; i < derivedUrls.length; i += CHUNK) {
+        await del(derivedUrls.slice(i, i + CHUNK));
       }
 
       manifest.pages = [];

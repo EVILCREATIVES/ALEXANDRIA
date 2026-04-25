@@ -118,7 +118,8 @@ export async function saveManifest(manifest: ProjectManifest) {
   const blob = await put(manifestPath(manifest.projectId), JSON.stringify(manifest, null, 2), {
     access: "public",
     contentType: "application/json",
-    addRandomSuffix: false
+    addRandomSuffix: false,
+    cacheControlMaxAge: 0,
   });
   return blob.url;
 }

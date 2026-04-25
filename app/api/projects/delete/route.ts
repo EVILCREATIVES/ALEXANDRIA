@@ -43,7 +43,10 @@ export async function POST(req: Request): Promise<Response> {
     }
 
     if (urls.length > 0) {
-      await del(urls);
+      const CHUNK = 1000;
+      for (let i = 0; i < urls.length; i += CHUNK) {
+        await del(urls.slice(i, i + CHUNK));
+      }
     }
 
     return NextResponse.json({ ok: true, deletedPrefix: prefix, deletedCount: urls.length });
