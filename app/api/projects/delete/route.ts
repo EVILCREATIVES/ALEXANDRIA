@@ -3,6 +3,7 @@ import { del, list } from "@vercel/blob";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+export const maxDuration = 300; // 5 minutes – large projects may have many blobs
 
 type Body = { projectId?: string };
 
