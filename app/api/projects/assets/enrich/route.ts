@@ -7,7 +7,7 @@ export const dynamic = "force-dynamic";
 export const maxDuration = 300;
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
-const MODEL = "gemini-2.0-flash";
+const MODEL = process.env.GEMINI_ENRICH_MODEL || "gemini-3.1-flash-lite-preview";
 
 /* ── Structured output schema ── */
 
@@ -155,6 +155,8 @@ export async function POST(req: NextRequest): Promise<Response> {
     },
     systemInstruction: SYSTEM_PROMPT,
   });
+
+  console.log(`[enrich] Using model: ${MODEL}`);
 
   let totalEnriched = 0;
   const errors: string[] = [];
