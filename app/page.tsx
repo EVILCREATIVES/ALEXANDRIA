@@ -323,7 +323,7 @@ function AssetDetailOverlay({ asset, onClose }: { asset: PageAsset & { pageNumbe
             <div style={{ marginTop: 16 }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: "#8a7e6b", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>🔬 Content Metadata</div>
               <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fill, minmax(200px, 1fr))", gap: 8 }}>
-                {Object.entries(asset.metadata!).map(([k, v]) => (
+                {Object.entries(asset.metadata || {}).map(([k, v]) => (
                   <div key={k} style={{ background: "#f0ede7", borderRadius: 8, padding: "8px 12px" }}>
                     <div style={{ fontSize: 10, fontWeight: 600, color: "#8a7e6b", textTransform: "uppercase" }}>{k}</div>
                     <div style={{ fontSize: 13, color: "#1a1510", marginTop: 2 }}>{v}</div>
@@ -338,7 +338,7 @@ function AssetDetailOverlay({ asset, onClose }: { asset: PageAsset & { pageNumbe
             <div style={{ marginTop: 16 }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: "#8a7e6b", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>🏷️ Tags</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                {asset.tags!.map((tag) => (
+                {(asset.tags || []).map((tag) => (
                   <span key={tag} style={{
                     fontSize: 12, background: "#dcd5c8", color: "#3a3428",
                     padding: "3px 10px", borderRadius: 12,
@@ -353,7 +353,7 @@ function AssetDetailOverlay({ asset, onClose }: { asset: PageAsset & { pageNumbe
             <div style={{ marginTop: 12 }}>
               <div style={{ fontSize: 11, fontWeight: 600, color: "#8a7e6b", textTransform: "uppercase", letterSpacing: 0.5, marginBottom: 8 }}>🚫 Negative Tags</div>
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                {asset.negativeTags!.map((tag) => (
+                {(asset.negativeTags || []).map((tag) => (
                   <span key={tag} style={{
                     fontSize: 12, background: "#f5e0e0", color: "#8a3a3a",
                     padding: "3px 10px", borderRadius: 12,
@@ -859,7 +859,7 @@ export default function Page() {
   const [pipelineResumeStep, setPipelineResumeStep] = useState<PipelineStep | "">("");
 
   const [rasterProgress, setRasterProgress] = useState({ running: false, currentPage: 0, totalPages: 0, uploaded: 0 });
-  const [splitProgress, setSplitProgress] = useState({ running: false, page: 0, totalPages: 0, assetsUploaded: 0 });
+  const [splitProgress, setSplitProgress] = useState({ running: false, page: 0, totalPages: 0, completedPages: 0, assetsUploaded: 0 });
 
   /* ── Assets ── */
   const [assetsOpen, setAssetsOpen] = useState(true);
@@ -1379,7 +1379,7 @@ export default function Page() {
     }
 
     setBusy("Detecting images...");
-    setSplitProgress({ running: true, page: 0, totalPages: pages.length, assetsUploaded: 0 });
+    setSplitProgress({ running: true, page: 0, totalPages: pages.length, completedPages: 0, assetsUploaded: 0 });
     log("Starting image detection with Gemini...");
 
     try {
@@ -1391,25 +1391,29 @@ export default function Page() {
       for (let i = 0; i < pages.length; i += DETECT_BATCH) {
         const batch = pages.slice(i, i + DETECT_BATCH);
         await Promise.all(batch.map(async (page) => {
-          setSplitProgress((s) => ({ ...s, page: Math.max(s.page, page.pageNumber) }));
+          setSplitProgress((s) => ({ ...s, page: page.pageNumber }));
           log(`Detecting on page ${page.pageNumber}...`);
 
-          const detectRes = await apiFetch("/api/projects/assets/detect-gemini", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              pageUrl: page.url,
-              pageWidth: page.width,
-              pageHeight: page.height,
-              detectionRules: detectionRules || {}
-            })
-          });
-          if (!detectRes.ok) { log(`Detection failed page ${page.pageNumber}: ${await readErrorText(detectRes)}`); return; }
+          try {
+            const detectRes = await apiFetch("/api/projects/assets/detect-gemini", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({
+                pageUrl: page.url,
+                pageWidth: page.width,
+                pageHeight: page.height,
+                detectionRules: detectionRules || {}
+              })
+            });
+            if (!detectRes.ok) { log(`Detection failed page ${page.pageNumber}: ${await readErrorText(detectRes)}`); return; }
 
-          const detected = (await detectRes.json()) as { boxes?: Array<{ x: number; y: number; width: number; height: number; category?: string; title?: string; description?: string; metadata?: Record<string, string>; geo?: { lat: number; lng: number; placeName: string } | null; dateInfo?: { date?: string; era?: string; label: string } | null }>; error?: string };
-          const boxes = detected.boxes ?? [];
-          log(`Page ${page.pageNumber}: ${boxes.length} images found`);
-          if (boxes.length > 0) allResults.set(page.pageNumber, boxes);
+            const detected = (await detectRes.json()) as { boxes?: Array<{ x: number; y: number; width: number; height: number; category?: string; title?: string; description?: string; metadata?: Record<string, string>; geo?: { lat: number; lng: number; placeName: string } | null; dateInfo?: { date?: string; era?: string; label: string } | null }>; error?: string };
+            const boxes = detected.boxes ?? [];
+            log(`Page ${page.pageNumber}: ${boxes.length} images found`);
+            if (boxes.length > 0) allResults.set(page.pageNumber, boxes);
+          } finally {
+            setSplitProgress((s) => ({ ...s, completedPages: Math.min(s.totalPages, s.completedPages + 1) }));
+          }
         }));
       }
 
@@ -1423,6 +1427,9 @@ export default function Page() {
         const pnA = sortedPageNums[pi];
         const pnB = sortedPageNums[pi + 1];
         if (pnB !== pnA + 1) continue; // not consecutive
+
+        // Guard: a prior merge may have deleted one of these pages
+        if (!allResults.has(pnA) || !allResults.has(pnB)) continue;
 
         const pageA = pages.find(p => p.pageNumber === pnA);
         const pageB = pages.find(p => p.pageNumber === pnB);
@@ -1677,6 +1684,37 @@ export default function Page() {
     }
   }
 
+  async function enrichAssets() {
+    setLastError("");
+    if (!projectId || !manifestUrl) return;
+    setBusy("Enriching geo & date...");
+    log("Starting geo/date enrichment...");
+    try {
+      const r = await apiFetch("/api/projects/assets/enrich", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId, manifestUrl: manifestUrlRef.current || manifestUrl })
+      });
+      const j = (await r.json()) as { ok: boolean; enriched?: number; total?: number; manifestUrl?: string; errors?: string[]; error?: string };
+      if (!r.ok || !j.ok) throw new Error(j.error || `Enrich failed (${r.status})`);
+      if (j.manifestUrl) {
+        setManifestUrl(j.manifestUrl);
+        manifestUrlRef.current = j.manifestUrl;
+        setUrlParams(projectId, j.manifestUrl);
+        await loadManifest(j.manifestUrl);
+      }
+      log(`Enrichment complete: ${j.enriched ?? 0}/${j.total ?? 0} assets got geo/date data`);
+      if (j.errors?.length) log(`Enrichment errors: ${j.errors.join("; ")}`);
+      await refreshProjects();
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      log(`Enrich error: ${msg}`);
+      setLastError(msg);
+    } finally {
+      setBusy("");
+    }
+  }
+
   async function deleteAllAssets() {
     setLastError("");
     if (!projectId || !manifestUrl) return;
@@ -1872,9 +1910,14 @@ export default function Page() {
     if (pipelineStep === "rasterize" && rasterProgress.running && rasterProgress.totalPages > 0) {
       base += (rasterProgress.currentPage / rasterProgress.totalPages) * stepSegment;
     } else if (pipelineStep === "detect" && splitProgress.running && splitProgress.totalPages > 0) {
-      base += (splitProgress.page / splitProgress.totalPages) * stepSegment;
+      base += (splitProgress.completedPages / splitProgress.totalPages) * stepSegment;
     }
     return Math.min(99, Math.round(base));
+  }
+
+  function getDetectionPercent(): number {
+    if (!splitProgress.running || splitProgress.totalPages <= 0) return 0;
+    return Math.min(100, Math.round((splitProgress.completedPages / splitProgress.totalPages) * 100));
   }
 
   function getPipelineLabel(): string {
@@ -1885,7 +1928,7 @@ export default function Page() {
       return "Rasterizing pages...";
     }
     if (pipelineStep === "detect") {
-      if (splitProgress.running) return `Detecting images — page ${splitProgress.page} of ${splitProgress.totalPages} (${splitProgress.assetsUploaded} extracted)`;
+      if (splitProgress.running) return `Detecting images — ${splitProgress.completedPages}/${splitProgress.totalPages} pages (${splitProgress.assetsUploaded} extracted)`;
       return "Detecting images...";
     }
     return busy || "Processing...";
@@ -1917,7 +1960,7 @@ export default function Page() {
     if (!manifest?.pages) return [];
     const result: (PageAsset & { pageNumber: number })[] = [];
     for (const page of manifest.pages) {
-      if (!page.assets) continue;
+      if (!Array.isArray(page.assets)) continue;
       for (const a of page.assets) {
         result.push({ ...a, pageNumber: page.pageNumber });
       }
@@ -2049,9 +2092,9 @@ export default function Page() {
 
       {/* ═══════ ERROR BAR ═══════ */}
       {lastError && (
-        <div style={{ padding: "10px 24px", background: "#7f1d1d", color: "#fca5a5", fontSize: 13, display: "flex", justifyContent: "space-between" }}>
-          <span>{lastError}</span>
-          <button type="button" onClick={() => setLastError("")} style={{ background: "none", border: "none", color: "#fca5a5", cursor: "pointer" }}><XIcon /></button>
+        <div style={{ padding: "10px 24px", background: "#7f1d1d", color: "#fca5a5", fontSize: 13, display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 12 }}>
+          <span style={{ whiteSpace: "pre-wrap", wordBreak: "break-word", maxHeight: 120, overflow: "auto", flex: 1 }}>{lastError}</span>
+          <button type="button" onClick={() => setLastError("")} style={{ background: "none", border: "none", color: "#fca5a5", cursor: "pointer", flexShrink: 0 }}><XIcon /></button>
         </div>
       )}
 
@@ -2115,7 +2158,26 @@ export default function Page() {
       {/* ═══════ BUSY BAR (non-pipeline) ═══════ */}
       {busy && !pipelineStep && (
         <div style={{ padding: "10px 24px", background: "#d4c5a9", color: "#1a1510", fontSize: 13, fontWeight: 500 }}>
-          ⏳ {busy}
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 12 }}>
+            <span>⏳ {busy}</span>
+            {splitProgress.running && (
+              <span style={{ fontSize: 12, opacity: 0.85 }}>
+                {splitProgress.completedPages}/{splitProgress.totalPages} pages • {splitProgress.assetsUploaded} assets
+              </span>
+            )}
+          </div>
+          {splitProgress.running && (
+            <div style={{ marginTop: 8, height: 6, background: "rgba(26,21,16,0.18)", borderRadius: 999, overflow: "hidden" }}>
+              <div
+                style={{
+                  height: "100%",
+                  width: `${getDetectionPercent()}%`,
+                  background: "#1a1510",
+                  transition: "width 0.35s ease",
+                }}
+              />
+            </div>
+          )}
         </div>
       )}
 
@@ -2185,6 +2247,10 @@ export default function Page() {
                         </button>
                       ))}
                       <div style={{ flex: 1 }} />
+                      <button type="button" onClick={() => enrichAssets()} disabled={!!busy}
+                        style={{ padding: "6px 14px", fontSize: 12, background: "#1e3a5f", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", fontWeight: 500 }}>
+                        🌍 Enrich Geo
+                      </button>
                       <button type="button" onClick={() => splitImages()} disabled={!!busy}
                         style={{ padding: "6px 14px", fontSize: 12, background: "#854d0e", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", fontWeight: 500 }}>
                         {busy ? "Working..." : "🔄 Re-Detect Images"}
@@ -2249,7 +2315,7 @@ export default function Page() {
                                   {asset.description}
                                 </div>
                               )}
-                              {asset.metadata && Object.keys(asset.metadata).length > 0 && (
+                              {asset.metadata && typeof asset.metadata === "object" && Object.keys(asset.metadata).length > 0 && (
                                 <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 6 }}>
                                   {Object.entries(asset.metadata).map(([k, v]) => (
                                     <span key={k} style={{
@@ -2382,6 +2448,10 @@ export default function Page() {
                       <button type="button" onClick={() => { setSettingsOpen(false); splitImages(); }} disabled={!!busy}
                         style={{ padding: "8px 16px", fontSize: 13, background: "#fff", color: "#1a1510", border: "1px solid #ccc", borderRadius: 6, cursor: "pointer" }}>
                         Detect Images
+                      </button>
+                      <button type="button" onClick={() => { setSettingsOpen(false); enrichAssets(); }} disabled={!!busy}
+                        style={{ padding: "8px 16px", fontSize: 13, background: "#1e3a5f", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer" }}>
+                        🌍 Enrich Geo &amp; Date
                       </button>
                       <button type="button" onClick={() => { setSettingsOpen(false); runAutoPipeline(); }} disabled={!!busy || pipelineRunning}
                         style={{ padding: "8px 16px", fontSize: 13, background: "#065f46", color: "#fff", border: "none", borderRadius: 6, cursor: "pointer", fontWeight: 500 }}>
