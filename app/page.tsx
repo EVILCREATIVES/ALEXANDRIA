@@ -530,7 +530,7 @@ function MapView({ assets, onSelect }: { assets: (PageAsset & { pageNumber: numb
           </span>
         )}
       </div>
-      <div ref={mapRef} style={{ width: "100%", height: 500, borderRadius: 8, border: "1px solid #e5e0d5" }} />
+      <div ref={mapRef} style={{ width: "100%", height: "calc(100vh - 200px)", minHeight: 400, borderRadius: 8, border: "1px solid #e5e0d5" }} />
     </div>
   );
 }
@@ -2368,6 +2368,16 @@ export default function Page() {
                                 }}>
                                   {asset.category}
                                 </span>
+                              )}
+                              {(asset.geo || asset.dateInfo) && (
+                                <div style={{ position: "absolute", top: 6, left: 6, display: "flex", gap: 4 }}>
+                                  {asset.geo && (
+                                    <span style={{ background: "rgba(30,58,95,0.85)", color: "#fff", fontSize: 10, fontWeight: 600, padding: "2px 6px", borderRadius: 4 }}>🗺️</span>
+                                  )}
+                                  {asset.dateInfo && (
+                                    <span style={{ background: "rgba(6,95,70,0.85)", color: "#fff", fontSize: 10, fontWeight: 600, padding: "2px 6px", borderRadius: 4 }}>📅</span>
+                                  )}
+                                </div>
                               )}
                             </div>
                             <div style={{ padding: "10px 12px" }}>
