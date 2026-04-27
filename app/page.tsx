@@ -392,9 +392,9 @@ function AssetDetailOverlay({ asset, onClose }: { asset: PageAsset & { pageNumbe
 /* ───────── Map View (Google Maps) ───────── */
 function MapView({ assets, onSelect }: { assets: (PageAsset & { pageNumber: number })[]; onSelect?: (a: PageAsset & { pageNumber: number }) => void }) {
   const mapRef = useRef<HTMLDivElement>(null);
-  const mapInstanceRef = useRef<google.maps.Map | null>(null);
-  const markersRef = useRef<google.maps.marker.AdvancedMarkerElement[]>([]);
-  const infoWindowRef = useRef<google.maps.InfoWindow | null>(null);
+  const mapInstanceRef = useRef<any>(null);
+  const markersRef = useRef<any[]>([]);
+  const infoWindowRef = useRef<any>(null);
   const [geoMode, setGeoMode] = useState<"subject" | "preserved">("subject");
   const gmReady = useRef(false);
 
@@ -429,7 +429,7 @@ function MapView({ assets, onSelect }: { assets: (PageAsset & { pageNumber: numb
     if (infoWindowRef.current) infoWindowRef.current.close();
 
     const tryInit = () => {
-      const g = (window as unknown as { google?: { maps?: typeof google.maps } }).google?.maps;
+      const g = (window as unknown as { google?: { maps?: any } }).google?.maps;
       if (!g || !mapRef.current) return false;
 
       // Create map once, reuse on subsequent calls
