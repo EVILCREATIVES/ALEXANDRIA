@@ -8,6 +8,7 @@ export const maxDuration = 300;
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY || "";
 const MODEL = process.env.GEMINI_ENRICH_MODEL || "gemini-3.1-flash-lite-preview";
+const FETCH_TIMEOUT_MS = 15000;
 
 /* ── Structured output schema ── */
 
@@ -66,6 +67,17 @@ RULES:
 interface EnrichRequest {
   projectId: string;
   manifestUrl: string;
+  pageNumbers?: number[];
+}
+
+async function fetchWithTimeout(url: string, init?: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
 export async function POST(req: NextRequest): Promise<Response> {
@@ -81,6 +93,10 @@ export async function POST(req: NextRequest): Promise<Response> {
   }
 
   const { projectId, manifestUrl } = body;
+  const requestedPages = Array.isArray(body.pageNumbers)
+    ? body.pageNumbers.filter((n) => Number.isFinite(n)).map((n) => Number(n))
+    : [];
+  const pageFilter = requestedPages.length > 0 ? new Set<number>(requestedPages) : null;
   if (!projectId || !manifestUrl) {
     return NextResponse.json({ ok: false, error: "Missing projectId or manifestUrl" }, { status: 400 });
   }
@@ -123,6 +139,7 @@ export async function POST(req: NextRequest): Promise<Response> {
   let totalUnenriched = 0;
 
   for (const page of manifest.pages || []) {
+    if (pageFilter && !pageFilter.has(page.pageNumber)) continue;
     let hasUnenriched = false;
     for (const asset of page.assets || []) {
       if ((asset as Record<string, unknown>)._enriched) continue;
@@ -161,11 +178,17 @@ export async function POST(req: NextRequest): Promise<Response> {
   let totalEnriched = 0;
   const errors: string[] = [];
   const BATCH_SIZE = 10; // smaller batches since we're sending images
+  const assetById = new Map<string, PageAsset>();
+  for (const page of manifest.pages || []) {
+    for (const asset of page.assets || []) {
+      assetById.set(asset.assetId, asset);
+    }
+  }
 
   /* ── Helper: fetch image as base64 ── */
   async function fetchImage(url: string): Promise<{ data: string; mimeType: string } | null> {
     try {
-      const res = await fetch(url);
+      const res = await fetchWithTimeout(url, { cache: "no-store" });
       if (!res.ok) return null;
       const buf = Buffer.from(await res.arrayBuffer());
       const mimeType = res.headers.get("content-type") || "image/png";
@@ -176,7 +199,8 @@ export async function POST(req: NextRequest): Promise<Response> {
   }
 
   /* ── Process page by page ── */
-  for (const [pageNum, assets] of byPage) {
+  const pagesInRun = [...byPage.entries()].sort((a, b) => a[0] - b[0]);
+  for (const [pageNum, assets] of pagesInRun) {
     // Sub-batch within each page
     const subBatches: PageAsset[][] = [];
     for (let i = 0; i < assets.length; i += BATCH_SIZE) {
@@ -258,18 +282,15 @@ export async function POST(req: NextRequest): Promise<Response> {
 
         for (const enrichment of parsed) {
           if (!enrichment.assetId) continue;
-          for (const page of manifest.pages || []) {
-            const asset = page.assets?.find((a) => a.assetId === enrichment.assetId);
-            if (!asset) continue;
-            const gotData = !!(enrichment.geo || enrichment.dateInfo);
-            if (enrichment.geo) asset.geo = enrichment.geo;
-            if (enrichment.dateInfo) asset.dateInfo = enrichment.dateInfo;
-            // Only mark _enriched if we actually got data — allows retry otherwise
-            if (gotData) {
-              (asset as Record<string, unknown>)._enriched = true;
-              totalEnriched++;
-            }
-            break;
+          const asset = assetById.get(enrichment.assetId);
+          if (!asset) continue;
+          const gotData = !!(enrichment.geo || enrichment.dateInfo);
+          if (enrichment.geo) asset.geo = enrichment.geo;
+          if (enrichment.dateInfo) asset.dateInfo = enrichment.dateInfo;
+          // Only mark _enriched if we actually got data — allows retry otherwise
+          if (gotData) {
+            (asset as Record<string, unknown>)._enriched = true;
+            totalEnriched++;
           }
         }
       } catch (e) {

@@ -1145,21 +1145,54 @@ export default function Page() {
     setThumbnailsBusy(true);
     log("Starting thumbnail generation...");
     try {
-      const res = await apiFetch("/api/projects/assets/generate-thumbnails", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectId, manifestUrl })
-      });
-      if (!res.ok) throw new Error(await readErrorText(res));
-      const data = (await res.json()) as { ok: boolean; processed?: number; skipped?: number; errors?: number; manifestUrl?: string; error?: string };
-      if (!data.ok) throw new Error(data.error || "Failed to generate thumbnails");
-      log(`Thumbnails: ${data.processed ?? 0} generated, ${data.skipped ?? 0} skipped, ${data.errors ?? 0} errors`);
-      if (data.manifestUrl) {
-        setManifestUrl(data.manifestUrl);
-        await loadManifest(data.manifestUrl);
-      } else {
-        await loadManifest(manifestUrl);
+      const pages = (manifest?.pages || []).map((p) => p.pageNumber);
+      if (pages.length === 0) {
+        // Fallback to legacy whole-project request when page list is not available.
+        const fallbackRes = await apiFetch("/api/projects/assets/generate-thumbnails", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ projectId, manifestUrl })
+        });
+        if (!fallbackRes.ok) throw new Error(await readErrorText(fallbackRes));
+        const fallbackData = (await fallbackRes.json()) as { ok: boolean; processed?: number; skipped?: number; errors?: number; manifestUrl?: string; error?: string };
+        if (!fallbackData.ok) throw new Error(fallbackData.error || "Failed to generate thumbnails");
+        log(`Thumbnails: ${fallbackData.processed ?? 0} generated, ${fallbackData.skipped ?? 0} skipped, ${fallbackData.errors ?? 0} errors`);
+        if (fallbackData.manifestUrl) {
+          setManifestUrl(fallbackData.manifestUrl);
+          manifestUrlRef.current = fallbackData.manifestUrl;
+          await loadManifest(fallbackData.manifestUrl);
+        } else {
+          await loadManifest(manifestUrl);
+        }
+        return;
       }
+
+      let runningManifestUrl = manifestUrlRef.current || manifestUrl;
+      let totalProcessed = 0;
+      let totalSkipped = 0;
+      let totalErrors = 0;
+
+      for (const pageNumber of pages) {
+        const res = await apiFetch("/api/projects/assets/generate-thumbnails", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ projectId, manifestUrl: runningManifestUrl, pageNumber })
+        });
+        if (!res.ok) throw new Error(await readErrorText(res));
+        const data = (await res.json()) as { ok: boolean; processed?: number; skipped?: number; errors?: number; manifestUrl?: string; error?: string };
+        if (!data.ok) throw new Error(data.error || `Failed to generate thumbnails for page ${pageNumber}`);
+        totalProcessed += data.processed ?? 0;
+        totalSkipped += data.skipped ?? 0;
+        totalErrors += data.errors ?? 0;
+        if (data.manifestUrl) {
+          runningManifestUrl = data.manifestUrl;
+          setManifestUrl(data.manifestUrl);
+          manifestUrlRef.current = data.manifestUrl;
+        }
+      }
+
+      log(`Thumbnails: ${totalProcessed} generated, ${totalSkipped} skipped, ${totalErrors} errors`);
+      await loadManifest(runningManifestUrl);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       setLastError(msg);
@@ -1690,21 +1723,52 @@ export default function Page() {
     setBusy("Enriching geo & date...");
     log("Starting geo/date enrichment...");
     try {
-      const r = await apiFetch("/api/projects/assets/enrich", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ projectId, manifestUrl: manifestUrlRef.current || manifestUrl })
-      });
-      const j = (await r.json()) as { ok: boolean; enriched?: number; total?: number; manifestUrl?: string; errors?: string[]; error?: string };
-      if (!r.ok || !j.ok) throw new Error(j.error || `Enrich failed (${r.status})`);
-      if (j.manifestUrl) {
-        setManifestUrl(j.manifestUrl);
-        manifestUrlRef.current = j.manifestUrl;
-        setUrlParams(projectId, j.manifestUrl);
-        await loadManifest(j.manifestUrl);
+      const pagesToEnrich = (manifest?.pages || [])
+        .filter((p) => (p.assets || []).some((a) => {
+          const enrichedFlag = Boolean((a as unknown as Record<string, unknown>)._enriched);
+          return !enrichedFlag && !a.geo && !a.dateInfo;
+        }))
+        .map((p) => p.pageNumber);
+
+      if (pagesToEnrich.length === 0) {
+        log("Enrichment skipped: no assets need geo/date enrichment");
+        return;
       }
-      log(`Enrichment complete: ${j.enriched ?? 0}/${j.total ?? 0} assets got geo/date data`);
-      if (j.errors?.length) log(`Enrichment errors: ${j.errors.join("; ")}`);
+
+      let runningManifestUrl = manifestUrlRef.current || manifestUrl;
+      let totalEnriched = 0;
+      let totalCandidates = 0;
+      const allErrors: string[] = [];
+
+      for (const pageNumber of pagesToEnrich) {
+        const r = await apiFetch("/api/projects/assets/enrich", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            projectId,
+            manifestUrl: runningManifestUrl,
+            pageNumbers: [pageNumber],
+          })
+        });
+
+        const j = (await r.json()) as { ok: boolean; enriched?: number; total?: number; manifestUrl?: string; errors?: string[]; error?: string };
+        if (!r.ok || !j.ok) throw new Error(j.error || `Enrich failed on page ${pageNumber} (${r.status})`);
+
+        totalEnriched += j.enriched ?? 0;
+        totalCandidates += j.total ?? 0;
+        if (Array.isArray(j.errors) && j.errors.length > 0) allErrors.push(...j.errors);
+
+        if (j.manifestUrl) {
+          runningManifestUrl = j.manifestUrl;
+          setManifestUrl(j.manifestUrl);
+          manifestUrlRef.current = j.manifestUrl;
+        }
+      }
+
+      setUrlParams(projectId, runningManifestUrl);
+      await loadManifest(runningManifestUrl);
+      log(`Enrichment complete: ${totalEnriched}/${totalCandidates} assets got geo/date data`);
+      if (allErrors.length) log(`Enrichment errors: ${allErrors.join("; ")}`);
       await refreshProjects();
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);

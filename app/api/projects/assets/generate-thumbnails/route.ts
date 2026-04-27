@@ -9,12 +9,23 @@ export const maxDuration = 300; // 5 minutes for processing many images
 // Thumbnail settings
 const THUMBNAIL_MAX_WIDTH = 400;
 const THUMBNAIL_QUALITY = 80;
+const FETCH_TIMEOUT_MS = 15000;
 
 type Body = {
   projectId?: string;
   manifestUrl?: string;
   pageNumber?: number; // Optional: process specific page only
 };
+
+async function fetchWithTimeout(url: string, init?: RequestInit): Promise<Response> {
+  const controller = new AbortController();
+  const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
+  try {
+    return await fetch(url, { ...init, signal: controller.signal });
+  } finally {
+    clearTimeout(timeout);
+  }
+}
 
 /**
  * Generate thumbnails for all assets that don't have one yet.
@@ -65,7 +76,7 @@ export async function POST(req: NextRequest): Promise<Response> {
         // Skip only when thumbnail URL exists and is reachable.
         if (asset.thumbnailUrl) {
           try {
-            const thumbRes = await fetch(asset.thumbnailUrl, {
+            const thumbRes = await fetchWithTimeout(asset.thumbnailUrl, {
               method: "HEAD",
               cache: "no-store",
             });
@@ -86,7 +97,7 @@ export async function POST(req: NextRequest): Promise<Response> {
 
         try {
           // Fetch original image
-          const response = await fetch(asset.url);
+          const response = await fetchWithTimeout(asset.url, { cache: "no-store" });
           if (!response.ok) {
             console.error(`Failed to fetch ${asset.url}: ${response.status}`);
             errors++;
